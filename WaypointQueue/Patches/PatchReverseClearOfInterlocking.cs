@@ -120,7 +120,7 @@ namespace WaypointQueue
                     float momentum = (float)args[0] + baseMomentum;
                     List<Car> coupled = locomotive.EnumerateCoupled().ToList();
                     if (!AutoEngineerPlanner.TryPlanRoute(locomotive, coupled, MaximumLength(planner), orders.Forward, waypoint.Value, Graph.Shared.Current,
-                            out _, out List<RouteSearch.Step> steps, out _, out _, null, momentum) || steps == null)
+                            out _, out List<RouteSearch.Step> steps, out _, out _, out _, null, momentum) || steps == null)
                         return true;
                     for (int i = 1; i < steps.Count; i++)
                     {

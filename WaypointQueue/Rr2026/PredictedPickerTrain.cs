@@ -129,14 +129,24 @@ namespace WaypointQueue
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(PosedWaypoint), nameof(PosedWaypoint.PlanNaturalArrival))]
-        private static bool PlanNaturalArrivalPrefix(BaseLocomotive locomotive, Location mark, out List<RouteSearch.Step> route, ref bool __result)
+        // 0.6.3: PlanNaturalArrival gives the arrival pose (the leading end and the side the body lies) instead of the
+        // route; the game reads it off the route's last step, so do the same with the predicted train's route.
+        private static bool PlanNaturalArrivalPrefix(BaseLocomotive locomotive, IGraphView graphView, Location mark, List<JunctionTurn> arrivalTurnsOut,
+            out ConsistEnd arrivingEnd, out BodyToward bodyToward, ref bool __result)
         {
-            route = null;
+            arrivingEnd = ConsistEnd.A;
+            bodyToward = BodyToward.Unspecified;
             if (_prediction == null || locomotive != _locomotive)
             {
                 return true;
             }
-            __result = _prediction.TryRouteTo(mark, out route);
+            arrivalTurnsOut?.Clear();
+            __result = _prediction.TryRouteTo(mark, out List<RouteSearch.Step> route) && route != null && route.Count > 0;
+            if (__result)
+            {
+                RouteSearch.Step arrival = route[route.Count - 1];
+                WaypointPose.TryDescribeArrival(graphView, mark, _prediction.Length, arrival.Location, arrival.LeadingEnd, out arrivingEnd, out bodyToward);
+            }
             return false;
         }
 

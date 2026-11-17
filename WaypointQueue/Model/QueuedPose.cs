@@ -158,7 +158,12 @@ namespace WaypointQueue.Model
         {
             IGraphView graphView = Graph.Shared.Current;
             Vector3 from = graphView.GetPosition(locomotive.LocationF);
-            if (PosedWaypoint.PlanNaturalArrival(locomotive, graphView, mark, null, new List<JunctionTurn>(), out List<RouteSearch.Step> route) && route != null)
+            // 0.6.3: PosedWaypoint.PlanNaturalArrival no longer hands out the route; plan it the way it does
+            List<Car> coupled = locomotive.EnumerateCoupled().ToList();
+            bool forward = new AutoEngineerPersistence(locomotive.KeyValueObject).Orders.Forward;
+            if (AutoEngineerPlanner.TryPlanRoute(locomotive, coupled, AutoEngineerPlanner.CalculateTotalLength(coupled), forward,
+                    new OrderWaypoint(Graph.LocationToString(mark), null), graphView, out _, out List<RouteSearch.Step> route, out _, out _, out _,
+                    null, 0f, new List<JunctionTurn>()) && route != null)
             {
                 Vector3 markPosition = graphView.GetPosition(mark);
                 for (int i = route.Count - 1; i >= 0; i--)

@@ -117,21 +117,24 @@ namespace WaypointQueue
             }
         }
 
+        // 0.6.3: the AE keeps its switches to restore (saved with the game) while it stays in waypoint mode, and puts
+        // them back once stopped with no waypoint. Leaving waypoint mode (ReleaseSwitches) restores them only when
+        // the train is stopped, otherwise it forgets them: those go to the restorer.
         [HarmonyPrefix]
-        [HarmonyPatch("RestoreAllRemainingSwitches")]
-        private static void RestoreAllRemainingSwitchesPrefix(
-                Dictionary<string, bool> ____routeSwitchesToRestore,
+        [HarmonyPatch("ReleaseSwitches")]
+        private static void ReleaseSwitchesPrefix(
+                Dictionary<string, bool> ____switchesToRestore,
                 out Dictionary<string, bool> __state
             )
         {
-            __state = ____routeSwitchesToRestore != null && ____routeSwitchesToRestore.Count > 0
-                ? new Dictionary<string, bool>(____routeSwitchesToRestore)
+            __state = ____switchesToRestore != null && ____switchesToRestore.Count > 0
+                ? new Dictionary<string, bool>(____switchesToRestore)
                 : null;
         }
 
         [HarmonyPostfix]
-        [HarmonyPatch("RestoreAllRemainingSwitches")]
-        private static void RestoreAllRemainingSwitchesPostfix(
+        [HarmonyPatch("ReleaseSwitches")]
+        private static void ReleaseSwitchesPostfix(
             AutoEngineerPlanner __instance,
             BaseLocomotive ____locomotive,
             Graph ____graph,
@@ -142,35 +145,11 @@ namespace WaypointQueue
 
             try
             {
-                KeepUnrestored(__instance, ____locomotive, ____graph, __state, "with the train on it");
+                KeepUnrestored(__instance, ____locomotive, ____graph, __state, "when it left waypoint mode");
             }
             catch (Exception ex)
             {
-                ModLocator.Loader.LogError($"RestoreAllRemainingSwitches postfix failed: {ex}");
-            }
-        }
-
-        // Runs before ClearRoute empties the list (after RestoreAllRemainingSwitches it's already empty).
-        [HarmonyPrefix]
-        [HarmonyPatch("ClearRoute")]
-        private static void ClearRoutePrefix(
-            AutoEngineerPlanner __instance,
-            BaseLocomotive ____locomotive,
-            Graph ____graph,
-            Dictionary<string, bool> ____routeSwitchesToRestore,
-            Orders ____orders
-        )
-        {
-            if (!StateManager.IsHost) return;
-
-            try
-            {
-                if (____orders.Mode == Game.Messages.AutoEngineerMode.Waypoint && ____routeSwitchesToRestore != null && ____routeSwitchesToRestore.Count > 0)
-                    KeepUnrestored(__instance, ____locomotive, ____graph, new Dictionary<string, bool>(____routeSwitchesToRestore), "when its route was cleared");
-            }
-            catch (Exception ex)
-            {
-                ModLocator.Loader.LogError($"ClearRoute prefix failed: {ex}");
+                ModLocator.Loader.LogError($"ReleaseSwitches postfix failed: {ex}");
             }
         }
 
@@ -181,23 +160,23 @@ namespace WaypointQueue
         // restorer is holding takes it over with the restorer's position.
         [HarmonyPrefix]
         [HarmonyPatch("TrySetSwitch")]
-        private static void TrySetSwitchPrefix(TrackNode node, Dictionary<string, bool> ____routeSwitchesToRestore, out bool __state)
+        private static void TrySetSwitchPrefix(TrackNode node, Dictionary<string, bool> ____switchesToRestore, out bool __state)
         {
-            __state = node != null && ____routeSwitchesToRestore != null && !____routeSwitchesToRestore.ContainsKey(node.id);
+            __state = node != null && ____switchesToRestore != null && !____switchesToRestore.ContainsKey(node.id);
         }
 
         [HarmonyPostfix]
         [HarmonyPatch("TrySetSwitch")]
-        private static void TrySetSwitchPostfix(TrackNode node, Dictionary<string, bool> ____routeSwitchesToRestore, BaseLocomotive ____locomotive, bool __state)
+        private static void TrySetSwitchPostfix(TrackNode node, Dictionary<string, bool> ____switchesToRestore, BaseLocomotive ____locomotive, bool __state)
         {
             if (!StateManager.IsHost) return;
 
             var restorer = ModLocator.Loader.PendingSwitchRestorer;
             try
             {
-                if (__state && ____routeSwitchesToRestore.ContainsKey(node.id) && restorer.TryTake(node.id, out bool originalThrown))
+                if (__state && ____switchesToRestore.ContainsKey(node.id) && restorer.TryTake(node.id, out bool originalThrown))
                 {
-                    ____routeSwitchesToRestore[node.id] = originalThrown;
+                    ____switchesToRestore[node.id] = originalThrown;
                     ModLocator.Loader.LogDebug($"Loco {____locomotive?.Ident}: route takes over switch {node.id} from the restorer; it goes back to {(originalThrown ? "reverse" : "normal")}");
                 }
             }
@@ -219,6 +198,9 @@ namespace WaypointQueue
             {
                 TrackNode node = graph.GetNode(entry.Key);
                 if (node == null || node.isThrown == entry.Value)
+                    continue;
+                // 0.6.3 restores only switches the AE itself threw last; someone else's since are left alone
+                if (!AuditManager.Shared.TryGetLastSwitchRequester(entry.Key, out string requester) || requester != "AE " + locomotive.DisplayName)
                     continue;
 
                 restorer.Add(new PendingSwitchRestorer.PendingSwitch
