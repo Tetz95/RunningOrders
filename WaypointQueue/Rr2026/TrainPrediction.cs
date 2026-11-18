@@ -61,8 +61,13 @@ namespace WaypointQueue
                 catch (Exception e)
                 {
                     ModLocator.Loader.LogDebug($"Train prediction for {locomotive.Ident} stopped at waypoint {i}: {e.Message}");
-                    prediction.Guesses.Add("couldn't follow the queue past waypoint " + (i + 1));
-                    break;
+                    prediction.EnginesOnly("couldn't follow the queue past waypoint " + (i + 1) + ", so only the locomotive is shown");
+                    return prediction;
+                }
+                if (!prediction.Cars.Contains(locomotive))
+                {
+                    prediction.EnginesOnly("lost the locomotive at waypoint " + (i + 1) + ", so only the locomotive is shown");
+                    return prediction;
                 }
             }
             return prediction;
@@ -397,10 +402,9 @@ namespace WaypointQueue
             }
             else if (wp.WillUncoupleAllExceptLocomotives)
             {
-                toCut = Cars.Where(c => !(c is BaseLocomotive) && !c.CarType.IsTender).ToList();
-                Cars = Cars.Except(toCut).ToList();
-                Changed = true;
-                Guesses.Add("which end the remaining locomotives stand at after " + DescribeMark(wp));
+                // Only the locomotives stay: the driven locomotive's own group (it and its tenders and coupled
+                // locomotives), standing where they stand in the train now.
+                TrimToEngines();
                 return;
             }
             else if (wp.WillUncoupleByDestination && TryDestinationCut(wp, fromEnd, out toCut))
@@ -436,7 +440,71 @@ namespace WaypointQueue
             return true;
         }
 
+        private static bool IsEngine(Car car) => car is BaseLocomotive || car.CarType.IsTender;
+
+        // Cars are only ever taken off up to the first locomotive or tender from that end: the train never loses its
+        // engine, whatever an order counts (a set-out after coupling counts from the end the train came in on, which can
+        // be the locomotive's end).
         private void RemoveFromEnd(ConsistEnd end, int count)
+        {
+            List<Car> fromEnd = end == ConsistEnd.A ? Cars : Enumerable.Reverse(Cars).ToList();
+            int firstEngine = fromEnd.FindIndex(IsEngine);
+            if (firstEngine >= 0)
+            {
+                count = Math.Min(count, firstEngine);
+            }
+            RemoveFromEndUnguarded(end, count);
+        }
+
+        // The driven locomotive's group: the run of locomotives and tenders around it.
+        private (int first, int last) EngineGroup()
+        {
+            int at = Cars.IndexOf(_locomotive);
+            if (at < 0)
+            {
+                return (-1, -1);
+            }
+            int first = at, last = at;
+            while (first > 0 && IsEngine(Cars[first - 1])) first--;
+            while (last < Cars.Count - 1 && IsEngine(Cars[last + 1])) last++;
+            return (first, last);
+        }
+
+        // Only the driven locomotive's group stays, where it stands in the predicted train.
+        private void TrimToEngines()
+        {
+            (int first, int last) = EngineGroup();
+            if (first < 0)
+            {
+                return;
+            }
+            int after = Cars.Count - 1 - last;
+            RemoveFromEndUnguarded(ConsistEnd.B, after);
+            RemoveFromEndUnguarded(ConsistEnd.A, first);
+        }
+
+        // The fallback when the queue can't be followed: just the locomotive's group, so the picker still shows which
+        // way it faces. Where the prediction still has it, it stays where it stands; otherwise its group from the train
+        // as it is now, at the predicted train's end A.
+        public void EnginesOnly(string why)
+        {
+            Guesses.Add(why);
+            if (Cars.Contains(_locomotive))
+            {
+                TrimToEngines();
+                Changed = true;
+                return;
+            }
+            List<Car> train = [.. _locomotive.EnumerateCoupled(Car.LogicalEnd.A)];
+            int at = train.IndexOf(_locomotive), first = at, last = at;
+            while (first > 0 && IsEngine(train[first - 1])) first--;
+            while (last < train.Count - 1 && IsEngine(train[last + 1])) last++;
+            Cars = train.Skip(first).Take(last - first + 1).ToList();
+            _endB = _graph.LocationByMoving(_endA.Flipped(), Length, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true);
+            Changed = true;
+        }
+
+        private void RemoveFromEndUnguarded(ConsistEnd end, int count)
         {
             count = Mathf.Clamp(count, 0, Cars.Count - 1);
             if (count == 0)

@@ -153,6 +153,18 @@ namespace WaypointQueue.UI
             builder.Spacer(8f);
             builder.HStack(row =>
             {
+                row.AddToggle(() => Settings.StopFastForwardAtWaypoints, (bool val) =>
+                {
+                    Settings.StopFastForwardAtWaypoints = val;
+                    Save();
+                });
+                row.Spacer(8f);
+                row.AddLabel("Stop Fast Forward at each waypoint");
+            });
+
+            builder.Spacer(8f);
+            builder.HStack(row =>
+            {
                 row.AddToggle(() => Settings.BleedAirByDefault, val =>
                 {
                     Settings.BleedAirByDefault = val;

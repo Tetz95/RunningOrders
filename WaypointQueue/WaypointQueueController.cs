@@ -186,6 +186,7 @@ namespace WaypointQueue
                     {
                         //ModLocator.Loader.Log($"Finish resolving waypoint {state.UnresolvedWaypoint.Id} {state.UnresolvedWaypoint.Location} for {state.UnresolvedWaypoint.Locomotive.Ident}");
                         RemoveWaypoint(entry.UnresolvedWaypoint);
+                        FastForwardStopper.AtWaypoint(entry.Locomotive);
                     }
                 }
 

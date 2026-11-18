@@ -68,6 +68,9 @@ namespace WaypointQueue.Settings
         // Release handbrakes by default when coupling
         public bool ReleaseHandbrakesByDefault = true;
 
+        // Stop the game's Fast Forward each time a train finishes a queued waypoint (Tetz fork)
+        public bool StopFastForwardAtWaypoints = true;
+
         // Nearby coupling search distance in car lengths
         // DrawType.Slider, Precision = 0, Min = 1, Max = 100
         // Distance to search for nearby coupling. Measured in car lengths of about 40 ft each
