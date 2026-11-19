@@ -165,6 +165,11 @@ namespace WaypointQueue
                     continue;
                 }
 
+                if (ResendIfPlannedForOtherLength(entry, ordersHelper))
+                {
+                    continue;
+                }
+
                 if (!IsReadyToResolve(entry, ordersHelper))
                 {
                     continue;
@@ -322,6 +327,51 @@ namespace WaypointQueue
          * actually coupled, HasResolvedBrakeSystemOnCouple is set, so a waypoint that is re-sent after coupling
          * (for example after leaving and re-entering waypoint mode) isn't caught.
          */
+        // A posed order carries the train length its placement was planned for (OrderWaypoint.BodyLength). When the train
+        // is a different length, the auto engineer can't follow the plan: it rebuilds "not on current route" every few
+        // seconds, throwing the same switch back and forth, and never arrives. That happened when the next waypoint went
+        // out in the same tick as a cut after coupling, before the cut had left the consist (BEW 1: planned for 130.7 m
+        // with turns pinned over Nzjcazc7n, train 29 m), and the order stays like that in a save. Seen on two ticks in a
+        // row (the consist settles a frame after a cut), the waypoint is sent again for the train as it is, once per
+        // waypoint and length.
+        private const float PlannedLengthTolerance = 1f;
+        private readonly Dictionary<string, string> _lengthMismatchSeen = [];
+        private readonly HashSet<string> _lengthResent = [];
+
+        private bool ResendIfPlannedForOtherLength(LocoWaypointState entry, AutoEngineerOrdersHelper ordersHelper)
+        {
+            ManagedWaypoint wp = entry.UnresolvedWaypoint;
+            OrderWaypoint? order = ordersHelper.Orders.Waypoint;
+            if (wp == null || order == null || !order.Value.HasPlacement || wp.CurrentlyRefueling || wp.CurrentlyWaiting
+                || !AutoEngineerService.SameMark(order.Value.LocationString, wp.LocationString)
+                || (wp.IsCoupling && wp.TryResolveCoupleToCar(out Car target) && wp.Locomotive.EnumerateCoupled().Any(c => c.id == target.id)))
+            {
+                _lengthMismatchSeen.Remove(entry.LocomotiveId);
+                return false;
+            }
+            float length = AutoEngineerPlanner.CalculateTotalLength(wp.Locomotive.EnumerateCoupled().ToList());
+            if (Mathf.Abs(length - order.Value.BodyLength) <= PlannedLengthTolerance)
+            {
+                _lengthMismatchSeen.Remove(entry.LocomotiveId);
+                return false;
+            }
+            string key = $"{wp.Id}:{length:0.0}";
+            if (_lengthResent.Contains(key))
+            {
+                return false;
+            }
+            if (!_lengthMismatchSeen.TryGetValue(entry.LocomotiveId, out string seen) || seen != key)
+            {
+                _lengthMismatchSeen[entry.LocomotiveId] = key;
+                return false;
+            }
+            _lengthMismatchSeen.Remove(entry.LocomotiveId);
+            _lengthResent.Add(key);
+            ModLocator.Loader.Log($"{wp.Locomotive.Ident}: the order to {wp.Location} was planned for a {order.Value.BodyLength:0.0} m train, the train is {length:0.0} m: sending it again");
+            SendToFirstWaypoint(entry, ordersHelper);
+            return true;
+        }
+
         private bool IsCouplingTargetAlreadyInTrain(ManagedWaypoint wp, out Car car)
         {
             car = null;
