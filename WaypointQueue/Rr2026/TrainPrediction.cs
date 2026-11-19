@@ -345,11 +345,31 @@ namespace WaypointQueue
                 // Keep the cars of the cut nearest the train; the rest stay where they are.
                 cut = cut.Take(Mathf.Clamp(wp.NumberOfCarsToCut, 0, cut.Count)).ToList();
             }
+            else if (wp.WillPostCoupleCutPickup && wp.WillUncoupleAllExceptLocomotives)
+            {
+                // The cars of the cut up to its first locomotive or tender (FindPickupAllExceptLocomotives).
+                int firstEngine = cut.FindIndex(IsEngine);
+                if (firstEngine >= 0)
+                {
+                    cut = cut.Take(firstEngine).ToList();
+                }
+            }
             else if (wp.WillPostCoupleCutDropoff && wp.WillUncoupleByCount)
             {
                 // The cut stays, with the train's own cars next to it.
                 int leave = Mathf.Clamp(wp.NumberOfCarsToCut, 0, Cars.Count - 1);
                 RemoveFromEnd(arriving, leave);
+                cut = [];
+            }
+            else if (wp.WillPostCoupleCutDropoff && wp.WillUncoupleAllExceptLocomotives)
+            {
+                // The cut stays with every car on the arriving side of the locomotives
+                // (FindDropoffAllExceptLocomotives); cars beyond them, if any, stay on.
+                (int first, int last) = EngineGroup();
+                if (first >= 0)
+                {
+                    RemoveFromEndUnguarded(arriving, arriving == ConsistEnd.A ? first : Cars.Count - 1 - last);
+                }
                 cut = [];
             }
             else if (wp.HasAnyPostCouplingCutOrders)
