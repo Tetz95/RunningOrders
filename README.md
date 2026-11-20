@@ -1,20 +1,20 @@
-# Waypoint Queue (Tetz fork)
+# Tetz's Running Orders
 
 A mod for Railroader (0.6.3 or later) that gives the Auto Engineer's waypoint mode a queue: line up waypoints for a
 locomotive, each with its own orders (couple, cut, set brakes, refuel, wait, change speed or timetable symbol), and the
 train works through them one after another. Queues can be saved as routes and sent to any locomotive.
 
-It began as Tetz95's fork of [PrinceOfPluto's Waypoint Queue](https://github.com/PrinceOfPluto/WaypointQueue) and is now
+Until 2026-11 it was called Waypoint Queue (Tetz fork). It began as Tetz95's fork of [PrinceOfPluto's Waypoint Queue](https://github.com/PrinceOfPluto/WaypointQueue) and is now
 developed on its own. Thanks to PrinceOfPluto for the original; it is MIT-licensed, and its [LICENSE.txt](LICENSE.txt)
 applies here too.
 
 ## Installing
 
-Download the zip from [Releases](https://github.com/Tetz95/WaypointQueue/releases) and install it with your mod manager,
-or unpack it into the game's `Mods` folder (one folder, `WaypointQueue`). It loads as `tetz95/waypoint-queue` and can't
+Download the zip from [Releases](https://github.com/Tetz95/RunningOrders/releases) and install it with your mod manager,
+or unpack it into the game's `Mods` folder (one folder, `Tetz's Running Orders`). It loads as `tetz95/running-orders` and can't
 run alongside the original (`princeofpluto/waypointqueue`): install one or the other.
 
-Settings: in the game's Settings window, *Waypoint Queue* > *Open settings* (key bindings, coupling and cutting defaults,
+Settings: in the game's Settings window, *Running Orders* > *Open settings* (key bindings, coupling and cutting defaults,
 hand brakes, speeds).
 
 ## What it does
@@ -43,22 +43,23 @@ hand brakes, speeds).
 
 ## Upgrading from 2.2.x
 
-The versions after 2.2.x are a rewrite: queues in saves and saved routes from 2.2.x and earlier aren't read. Finish or note your queues,
+Running Orders is the new name of Waypoint Queue (Tetz fork): remove the old `WaypointQueue` folder from `Mods` (your
+mod manager may do it: the two are marked incompatible). The versions after 2.2.x are a rewrite: queues in saves and saved routes from 2.2.x and earlier aren't read. Finish or note your queues,
 and re-make your routes after updating. Settings and key bindings carry over.
 
 ## Reporting a problem
 
-Open an [issue](https://github.com/Tetz95/WaypointQueue/issues) with what happened, what you expected, and your
+Open an [issue](https://github.com/Tetz95/RunningOrders/issues) with what happened, what you expected, and your
 `Player.log` (`%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\Player.log`, right after the problem). When a
 waypoint shows an error, its *View error* button has a link here too.
 
 ## Building
 
-The projects are SDK-style: `dotnet build WaypointQueue/WaypointQueue.csproj` builds without Visual Studio. Copy
+The projects are SDK-style: `dotnet build RunningOrders/RunningOrders.csproj` builds without Visual Studio. Copy
 `Paths.user.example` to `Paths.user` and set `RrInstallDir` (the game folder) and `RrHomeDir` (the folder whose `Mods`
 the build installs into, normally `Documents\Railroader`); `-p:NoInstall=true` builds into `bin\` instead.
 
-Tests: `dotnet test WaypointQueue.Tests/WaypointQueue.Tests.csproj`. They run outside the game: the cut selection
+Tests: `dotnet test RunningOrders.Tests/RunningOrders.Tests.csproj`. They run outside the game: the cut selection
 (which cars a cut takes) works on plain lists of cars, so the tests use simple test cars.
 
 Code layout:
@@ -69,7 +70,7 @@ Code layout:
 - `Picker\` - the game's waypoint picker: poses, and the train drawn as it will be.
 - `UI\` - the Waypoints window (`WaypointWindow.*.cs`, one file per section), the Routes window and the settings.
 
-Releasing: set the version in `WaypointQueue/Properties/AssemblyInfo.cs`, build with
-`dotnet build WaypointQueue/WaypointQueue.csproj -c Release -p:NoInstall=true -o <out>`, package with
-`python tools/package.py . <out> "WaypointQueue (Tetz fork).zip"` (one top folder `WaypointQueue`), tag `v<version>`
+Releasing: set the version in `RunningOrders/Properties/AssemblyInfo.cs`, build with
+`dotnet build RunningOrders/RunningOrders.csproj -c Release -p:NoInstall=true -o <out>`, package with
+`python tools/package.py . <out> "Tetz's Running Orders.zip"` (one top folder `Tetz's Running Orders`), tag `v<version>`
 and attach the zip to a GitHub release under that name (mod managers then offer it as an update).

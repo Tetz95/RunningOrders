@@ -1,0 +1,71 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    SDK-style project: builds with the .NET SDK (dotnet build), no Visual Studio MSBuild needed. Every .cs file in
+    this folder is compiled, so new source files need no project entry.
+
+    Game paths come from ..\Paths.user (copy Paths.user.example): RrInstallDir is the game folder, RrHomeDir the
+    folder whose Mods the build installs into (the -homedir folder, or Documents\Railroader). Debug and Release
+    build straight into $(RrHomeDir)\Mods\Tetz's Running Orders; -p:NoInstall=true builds into bin\ instead.
+  -->
+  <Import Project="..\Paths.user" Condition="Exists('..\Paths.user')" />
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>RunningOrders</AssemblyName>
+    <RR2026Ported>true</RR2026Ported>
+    <RootNamespace>RunningOrders</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Deterministic>false</Deterministic>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <SolutionDir Condition="'$(SolutionDir)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\'))</SolutionDir>
+    <RrManagedDir>$(RrInstallDir)\Railroader_Data\Managed</RrManagedDir>
+    <ModDirectory>$(RrHomeDir)\Mods\Tetz's Running Orders\</ModDirectory>
+    <ModAssembly>$(ModDirectory)$(AssemblyName).dll</ModAssembly>
+    <Install Condition="'$(NoInstall)' != 'true' And '$(RrHomeDir)' != ''">true</Install>
+    <OutputPath Condition="'$(Install)' == 'true'">$(ModDirectory)</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="bin\**;obj\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Lib.Harmony" Version="2.4.3" />
+    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+    <PackageReference Include="Nullable" Version="1.3.1" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- The game's assemblies, never copied. -->
+  <ItemGroup>
+    <GameReference Include="Railroader;Railroader.Modding;KeyValue.Runtime;Newtonsoft.Json;UnityEngine;UnityEngine.CoreModule;UnityEngine.IMGUIModule;UnityEngine.InputModule;UnityEngine.JSONSerializeModule;UnityEngine.PhysicsModule;UnityEngine.UI;UnityEngine.UIModule;UnityEngine.ImageConversionModule;UnityEngine.InputLegacyModule;UnityEngine.TextRenderingModule;Unity.InputSystem;Unity.RenderPipelines.Universal.Runtime;Unity.TextMeshPro" />
+    <Reference Include="@(GameReference)">
+      <HintPath>$(RrManagedDir)\%(Identity).dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Info.json (with the assembly's version), licence and notices next to the DLL; Release also zips the mod. -->
+  <Target Name="CopyInfo" AfterTargets="Build" Condition="'$(Install)' == 'true'">
+    <GetAssemblyIdentity AssemblyFiles="$(ModAssembly)">
+      <Output TaskParameter="Assemblies" ItemName="ModAssemblyIdentities" />
+    </GetAssemblyIdentity>
+    <Copy SourceFiles="$(SolutionDir)Info.json;$(SolutionDir)LICENSE.txt;$(SolutionDir)THIRD_PARTY_NOTICES.txt" DestinationFolder="$(ModDirectory)" />
+    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(SolutionDir)UpdateVersion.ps1&quot; -FilePath &quot;$(ModDirectory)Info.json&quot; -FullVersion &quot;%(ModAssemblyIdentities.Version)&quot;" />
+  </Target>
+
+  <Target Name="PackageMod" AfterTargets="CopyInfo" Condition="'$(Install)' == 'true' And '$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <PublishPath>$(SolutionDir)bin</PublishPath>
+      <ZipName>$(PublishPath)\$(AssemblyName)_%(ModAssemblyIdentities.Version).zip</ZipName>
+    </PropertyGroup>
+    <MakeDir Directories="$(PublishPath)" />
+    <ItemGroup>
+      <OldZips Include="$(PublishPath)\$(AssemblyName)_*.zip" />
+    </ItemGroup>
+    <Delete Files="@(OldZips)" />
+    <Exec Command="powershell -Command &quot;Compress-Archive -Path '$(ModDirectory)\*' -Destination '$(ZipName)'&quot;" />
+  </Target>
+</Project>

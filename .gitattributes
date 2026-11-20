@@ -2,5 +2,5 @@
 # Needs the ours merge driver once per clone: git config merge.ours.driver true
 Info.json merge=ours
 README.md merge=ours
-WaypointQueue/WaypointQueue.csproj merge=ours
-WaypointQueue.Tests/WaypointQueue.Tests.csproj merge=ours
+RunningOrders/RunningOrders.csproj merge=ours
+RunningOrders.Tests/RunningOrders.Tests.csproj merge=ours
