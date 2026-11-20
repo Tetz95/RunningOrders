@@ -88,7 +88,7 @@ namespace WaypointQueue
                 ManagedWaypoint w = waypoints[i];
                 string pose = w.Pose == null ? "-" : $"{w.Pose.Describe(locomotive, w.Location)} [end {w.Pose.ArrivingEnd} side {w.Pose.BodyToward} len {w.Pose.BodyLength:0.0}]";
                 string errors = w.Errors.Count == 0 ? "" : " errors: " + string.Join("; ", w.Errors.Select(e => e.Message));
-                lines.Add($"#{i} {w.LocationString} couple '{w.CoupleToCarId}' stop {w.StopAtWaypoint} pose {pose} status '{w.StatusLabel}'{errors}");
+                lines.Add($"#{i} {w.LocationString} couple '{w.CoupleToCarId}' stop {w.StopAtWaypoint} pose {pose} step {w.Progress.Step} status '{w.StatusLabel}'{errors}");
             }
             return $"{waypoints.Count} waypoint(s)" + (lines.Count > 0 ? " | " + string.Join(" | ", lines) : "");
         }

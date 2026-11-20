@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+using System.Collections.Generic;
 
 namespace WaypointQueue.Model
 {
@@ -6,6 +8,10 @@ namespace WaypointQueue.Model
     // a copy (routes) or a re-pick starts with a fresh one.
     public class WaypointProgress
     {
+        // The step the waypoint has reached since the train got there (WaypointResolver).
+        [JsonConverter(typeof(StringEnumConverter))]
+        public WaypointStep Step { get; set; } = WaypointStep.Start;
+
         // The mark actually sent to the auto engineer when the run moved it (the found car's coupler, a refuel spot, the
         // coupler a coupling pick snapped to); null while it is the order's mark.
         public string Mark { get; set; }

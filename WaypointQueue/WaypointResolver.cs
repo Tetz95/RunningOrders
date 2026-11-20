@@ -1,45 +1,43 @@
-﻿using Game;
-using Game.Messages;
-using Game.Notices;
-using Game.State;
-using Model;
-using Model.AI;
-using Model.Ops.Timetable;
+﻿using Model;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Track;
-using UI.Common;
 using UI.EngineControls;
-using UnityEngine;
 using WaypointQueue.Model;
 using WaypointQueue.Services;
+using WaypointQueue.Steps;
 using WaypointQueue.UI;
 using WaypointQueue.Wrappers;
 
 namespace WaypointQueue
 {
-    internal class WaypointResolver(UncouplingService uncouplingService, RefuelService refuelService, CouplingService couplingService, ICarService carService, AutoEngineerService autoEngineerService, IOpsControllerWrapper opsControllerWrapper)
+    // What a waypoint does once the train has got there: the steps of WaypointStep, in order, from the one its progress
+    // has reached. Called on each queue tick while the waypoint is the one sent to the train and the auto engineer has
+    // no order left (or the controller takes the train as arrived); true once every step is done.
+    internal class WaypointResolver
     {
         public static readonly string NoDestinationString = "No destination";
         public static readonly string RemoveTrainSymbolString = "remove-train-symbol";
 
-        private readonly Dictionary<string, float> _timeSpentWaitingBeforeCutLookup = [];
+        private readonly ICarService _carService;
+        private readonly RefuelStep _refuelStep;
+        private readonly Dictionary<WaypointStep, IWaypointStep> _steps;
 
-        // Waypoints whose "then change symbol" has been applied (ids are new for every queued waypoint, copies included).
-        private readonly HashSet<string> _timetableSymbolApplied = [];
-
-        private readonly Dictionary<string, float> _timeSpentWaitingForRefuel = [];
-
-        private readonly Dictionary<string, HashSet<string>> _locoIdsWithTroubleRefuelingByWaypointLocoId = [];
-
-        private readonly Dictionary<string, int> _refuelRetryAttemptsByLocoId = [];
-
-        private readonly int _refuelTimeoutSeconds = 15;
-
-        private readonly int _maxRefuelRetryAttempts = 3;
-
-        private readonly string _refuelNoticeKey = "wpq-refuel";
+        public WaypointResolver(UncouplingService uncouplingService, RefuelService refuelService, CouplingService couplingService, ICarService carService, IOpsControllerWrapper opsControllerWrapper)
+        {
+            _carService = carService;
+            _refuelStep = new RefuelStep(refuelService, carService);
+            _steps = new Dictionary<WaypointStep, IWaypointStep>
+            {
+                [WaypointStep.Start] = new StartStep(),
+                [WaypointStep.Couple] = new CoupleStep(couplingService, carService),
+                [WaypointStep.Refuel] = _refuelStep,
+                [WaypointStep.Halt] = new HaltStep(),
+                [WaypointStep.Cut] = new CutStep(uncouplingService, carService),
+                [WaypointStep.Speed] = new SpeedStep(),
+                [WaypointStep.Wait] = new WaitStep(carService, opsControllerWrapper),
+            };
+        }
 
         public bool HandleUnresolvedWaypoint(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper, float tickIntervalSeconds)
         {
@@ -50,27 +48,52 @@ namespace WaypointQueue
 
             try
             {
-                return TryHandleUnresolvedWaypoint(wp, ordersHelper, tickIntervalSeconds);
+                return RunSteps(wp, ordersHelper, tickIntervalSeconds);
             }
             catch (UncouplingException e)
             {
                 HandleProcessingError("Uncoupling", e, wp);
-                return false;
             }
             catch (CouplingException e)
             {
                 HandleProcessingError("Coupling", e, wp);
-                return false;
             }
             catch (RefuelException e)
             {
                 HandleProcessingError("Refueling", e, wp);
-                return false;
             }
             catch (Exception e)
             {
                 HandleProcessingError("Waypoint", e, wp);
-                return false;
+            }
+            return false;
+        }
+
+        // Runs the current step and, as each finishes, the next one in the same tick. A step that isn't finished (or an
+        // error) leaves the waypoint on it; the step reached is saved, so a reload carries on from there.
+        private bool RunSteps(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper, float tickIntervalSeconds)
+        {
+            WaypointStep startedAt = wp.Progress.Step;
+            try
+            {
+                while (wp.Progress.Step < WaypointStep.Done)
+                {
+                    WaypointStep step = wp.Progress.Step;
+                    if (!_steps[step].Run(wp, ordersHelper, tickIntervalSeconds))
+                    {
+                        return false;
+                    }
+                    wp.Progress.Step = step + 1;
+                    ModLocator.Loader.LogDebug($"{wp.Locomotive.Ident}: waypoint {wp.Id} {step} done");
+                }
+                return true;
+            }
+            finally
+            {
+                if (wp.Progress.Step != startedAt && wp.Progress.Step < WaypointStep.Done)
+                {
+                    WaypointQueueController.Shared.UpdateWaypoint(wp);
+                }
             }
         }
 
@@ -84,691 +107,19 @@ namespace WaypointQueue
             ErrorModalController.Shared.ShowProcessingErrorModal(exception.Message, orderType, wp);
         }
 
-        /**
-         * Returns false when the waypoint is not yet resolved (i.e. needs to continue)
-         */
-        private bool TryHandleUnresolvedWaypoint(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper, float tickIntervalSeconds)
-        {
-            if (wp.WaitingWasSkipped)
-            {
-                return true;
-            }
-
-            // Once per waypoint: this runs on every tick until the waypoint's orders are done (a wait or a refuel takes
-            // minutes), and each call set the symbol again, logged it, or put up the no-crew alert again.
-            if (_timetableSymbolApplied.Add(wp.Id))
-            {
-                if (_timetableSymbolApplied.Count > 500)
-                {
-                    _timetableSymbolApplied.Clear();
-                    _timetableSymbolApplied.Add(wp.Id);
-                }
-                ApplyTimetableSymbolIfRequested(wp);
-            }
-
-            // ModLocator.Loader.LogDebug($"Trying to handle unresolved waypoint for {wp.Locomotive.Ident}:\n {wp.ToString()}");
-            if (!wp.StopAtWaypoint)
-            {
-                // TODO: refactor TryHandleUnresolvedWaypoint to
-                // avoid handling orders like this when not stopping at a waypoint
-
-                // Try to begin nearby coupling
-                if (wp.WillSeekNearestCoupling && !wp.CurrentlyCouplingNearby)
-                {
-                    if (couplingService.FindNearbyCoupling(wp, ordersHelper))
-                    {
-                        return false;
-                    }
-                    else
-                    {
-                        wp.CouplingSearchFinished(null);
-                        WaypointQueueController.Shared.UpdateWaypoint(wp);
-                        ModLocator.Loader.LogError($"{wp.Locomotive.Ident} cannot find a nearby car to couple.");
-                    }
-                }
-
-                // Try coupling to target
-                if (wp.WillSeekSpecificCarCoupling && !wp.CurrentlyCouplingSpecificCar)
-                {
-                    if (couplingService.FindSpecificCouplingTarget(wp, ordersHelper))
-                    {
-                        return false;
-                    }
-                    else
-                    {
-                        wp.CouplingSearchFinished(null);
-                    }
-                }
-
-                if (wp.HasAnyUncouplingOrders)
-                {
-                    ResolveUncouplingOrders(wp);
-                }
-                if (wp.WillChangeMaxSpeed)
-                {
-                    ResolveChangeMaxSpeed(wp);
-                }
-                return true;
-            }
-
-            // Check if done waiting
-            if (wp.CurrentlyWaiting)
-            {
-                // We don't want to start waiting until after we resolve the current waypoint orders,
-                // but we also don't want that resolving logic to run again after we are finished waiting
-                return TryEndWaiting(wp);
-            }
-
-            // Try to begin nearby coupling
-            if (wp.WillSeekNearestCoupling && !wp.CurrentlyCouplingNearby)
-            {
-                if (couplingService.FindNearbyCoupling(wp, ordersHelper))
-                {
-                    return false;
-                }
-                else
-                {
-                    wp.CouplingSearchFinished(null);
-                    WaypointQueueController.Shared.UpdateWaypoint(wp);
-                    ModLocator.Loader.LogError($"{wp.Locomotive.Ident} cannot find a nearby car to couple.");
-                }
-            }
-
-            // Try coupling to target
-            if (wp.WillSeekSpecificCarCoupling && !wp.CurrentlyCouplingSpecificCar)
-            {
-                if (couplingService.FindSpecificCouplingTarget(wp, ordersHelper))
-                {
-                    return false;
-                }
-                else
-                {
-                    wp.CouplingSearchFinished(null);
-                }
-            }
-
-            // Connecting air and releasing handbrakes may be done before being completely stopped
-            if (!wp.HasResolvedBrakeSystemOnCouple && wp.IsCoupling && !wp.CurrentlyRefueling && wp.TryResolveCoupleToCar(out Car _))
-            {
-                ResolveBrakeSystemOnCouple(wp);
-                wp.HasResolvedBrakeSystemOnCouple = true;
-                WaypointQueueController.Shared.UpdateWaypoint(wp);
-            }
-
-            if (!TryResolveFuelingOrders(wp, ordersHelper, tickIntervalSeconds))
-            {
-                return false;
-            }
-
-            /*
-             * Unless explicitly not stopping, loco needs a complete stop before resolving orders that would uncouple.
-             * Otherwise, some cars may be uncoupled and then recoupled if the train still has momentum.
-             */
-            if (!_timeSpentWaitingBeforeCutLookup.ContainsKey(wp.Id))
-            {
-                _timeSpentWaitingBeforeCutLookup[wp.Id] = 0f;
-            }
-
-            if (wp.StopAtWaypoint && !IsTrainStopped(wp) && wp.HasAnyCutOrders && _timeSpentWaitingBeforeCutLookup[wp.Id] < ModLocator.Settings.WaitBeforeCuttingTimeout)
-            {
-                if (!wp.CurrentlyWaitingBeforeCutting)
-                {
-                    ModLocator.Loader.Log($"{wp.Locomotive.Ident} is waiting until train is at rest to resolve cut orders");
-                    wp.CurrentlyWaitingBeforeCutting = true;
-                    wp.StatusLabel = $"Waiting until at rest to cut cars";
-                    WaypointQueueController.Shared.UpdateWaypoint(wp);
-                }
-
-                if (Mathf.Floor(wp.Locomotive.VelocityMphAbs) == 0)
-                {
-                    _timeSpentWaitingBeforeCutLookup[wp.Id] += tickIntervalSeconds;
-                }
-
-                if (_timeSpentWaitingBeforeCutLookup[wp.Id] < ModLocator.Settings.WaitBeforeCuttingTimeout)
-                {
-                    return false;
-                }
-                else
-                {
-                    ModLocator.Loader.Log($"{wp.Locomotive.Ident} proceeding with cut after waiting {ModLocator.Settings.WaitBeforeCuttingTimeout} seconds from zero absolute velocity floor");
-                }
-            }
-
-            if (wp.IsCoupling && wp.HasAnyPostCouplingCutOrders && wp.UncouplingMode != ManagedWaypoint.UncoupleMode.None)
-            {
-                ResolvePostCouplingCut(wp);
-            }
-            else if (wp.HasAnyUncouplingOrders)
-            {
-                ResolveUncouplingOrders(wp);
-            }
-
-            _timeSpentWaitingBeforeCutLookup.Remove(wp.Id);
-
-            if (wp.WillChangeMaxSpeed)
-            {
-                ResolveChangeMaxSpeed(wp);
-            }
-
-            if (TryBeginWaiting(wp))
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        private void ResolveChangeMaxSpeed(ManagedWaypoint wp)
-        {
-            var ordersHelper = autoEngineerService.GetOrdersHelper(wp.Locomotive);
-            // The railroad's speed limit (2026.1 lets the player set it, 5-100 mph; Legacy's was 45)
-            int maxSpeedToSet = Mathf.Clamp(wp.MaxSpeedForChange, 0, global::Model.AI.AutoEngineerOrdersExtensions.MaxSpeedMph(Game.Messages.AutoEngineerMode.Waypoint));
-            ordersHelper.SetOrdersValue(null, null, maxSpeedMph: maxSpeedToSet, null, null);
-        }
-
+        // Before the waypoint sent to the train is removed (resolved, deleted, replaced, or the order cleared).
         public bool CleanupBeforeRemovingWaypoint(ManagedWaypoint wp)
         {
-            if (_locoIdsWithTroubleRefuelingByWaypointLocoId.ContainsKey(wp.Locomotive.id))
-            {
-                foreach (var locoId in _locoIdsWithTroubleRefuelingByWaypointLocoId[wp.Locomotive.id])
-                {
-                    TrainController.Shared.TryGetCarForId(locoId, out Car carLoco);
-                    if (carLoco is BaseLocomotive loco)
-                    {
-                        loco.PostNotice(_refuelNoticeKey, String.Empty);
-                    }
-                }
-                _locoIdsWithTroubleRefuelingByWaypointLocoId.Remove(wp.Locomotive.id);
-                // return early since we don't want to put away the loader equipment yet
-                return true;
-            }
-
-            if (wp.RefuelLoaderAnimated)
-            {
-                try
-                {
-                    refuelService.SetCarLoaderSequencerWantsLoading(wp, false);
-                }
-                catch (Exception e)
-                {
-                    ModLocator.Loader.LogError($"{wp.Locomotive.Ident} failed to put away the {wp.RefuelLoadId} loader equipment: {e}");
-                    Console.Log($"{wp.Locomotive.Ident} failed to put away the {wp.RefuelLoadId} loader equipment.");
-                }
-            }
-            return true;
+            return _refuelStep.Cleanup(wp);
         }
 
-        private bool TryResolveFuelingOrders(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper, float tickIntervalSeconds)
-        {
-            if (wp.RepositioningToRetryRefuel)
-            {
-                wp.RepositioningToRetryRefuel = false;
-                WaypointQueueController.Shared.UpdateWaypoint(wp);
-                refuelService.OrderToRefuel(wp, ordersHelper, out var locosForRefuelList);
-                return false;
-            }
+        internal bool IsTrainStopped(ManagedWaypoint wp) => IsTrainStopped(_carService, wp);
 
-            // Reposition to refuel
-            if (wp.WillRefuel && !wp.CurrentlyRefueling && !wp.HasAnyCouplingOrders)
-            {
-                refuelService.OrderToRefuel(wp, ordersHelper, out var locosForRefuelList);
-                locosForRefuelList.ForEach(l =>
-                {
-                    _timeSpentWaitingForRefuel.Remove(l.id);
-                    _refuelRetryAttemptsByLocoId.Remove(l.id);
-                });
-                return false;
-            }
-
-            // After reaching the reposition waypoint, begin refueling with animations
-            if (wp.CurrentlyRefueling && !wp.RefuelLoaderAnimated && Mathf.Floor(wp.Locomotive.VelocityMphAbs) == 0)
-            {
-                refuelService.LogSlotAlignment(wp);
-                refuelService.SetCarLoaderSequencerWantsLoading(wp, true);
-                wp.RefuelLoaderAnimated = true;
-                wp.StatusLabel = $"Refueling {RefuelService.GetLabelForLoadId(wp.RefuelLoadId)}";
-                WaypointQueueController.Shared.UpdateWaypoint(wp);
-                return false;
-            }
-
-            // Can't check refueling progress if locomotive is still moving
-            if (Mathf.Floor(wp.Locomotive.VelocityMphAbs) > 0)
-            {
-                return false;
-            }
-
-            // Check if done refueling
-            if (wp.CurrentlyRefueling)
-            {
-                BaseLocomotive currentRefuelLoco = GetNextLocomotiveForRefuel(wp);
-                bool locoIsFull = refuelService.IsLocoFull(currentRefuelLoco, wp.RefuelLoadId, wp.RefuelMaxCapacity, out bool isIncreasing);
-                bool loaderIsEmpty = refuelService.IsLoaderEmpty(wp.RefuelIndustryId, wp.RefuelLoadId);
-
-                if (isIncreasing)
-                {
-                    _timeSpentWaitingForRefuel[currentRefuelLoco.id] = 0;
-                }
-
-                if (locoIsFull || loaderIsEmpty)
-                {
-                    _timeSpentWaitingForRefuel.Remove(currentRefuelLoco.id);
-                    _refuelRetryAttemptsByLocoId.Remove(currentRefuelLoco.id);
-
-                    if (wp.RefuelLocoIdsQueue.Count > 0)
-                    {
-                        wp.RefuelLocoIdsQueue.RemoveAt(0);
-                        wp.RefuelLoaderAnimated = false;
-                        refuelService.SetCarLoaderSequencerWantsLoading(wp, false);
-                        WaypointQueueController.Shared.UpdateWaypoint(wp);
-                    }
-
-                    // check if we need to continue refueling additional locomotives
-                    BaseLocomotive nextLocoToRefuel = GetNextLocomotiveForRefuel(wp);
-                    if (nextLocoToRefuel != null)
-                    {
-                        refuelService.OrderLocomotiveToRefuel(nextLocoToRefuel, wp, ordersHelper);
-                        return false;
-                    }
-                    else
-                    {
-                        refuelService.CleanupAfterRefuel(wp, ordersHelper);
-                    }
-                }
-                else if (!locoIsFull && !loaderIsEmpty && !isIncreasing)
-                {
-                    HandleIncrementingRefuelWaitingTime(currentRefuelLoco, tickIntervalSeconds);
-
-                    if (_timeSpentWaitingForRefuel[currentRefuelLoco.id] < _refuelTimeoutSeconds)
-                    {
-                        // wait longer before retrying refuel position
-                        return false;
-                    }
-                    else
-                    {
-                        if (ShouldRetryRefuel(currentRefuelLoco.id))
-                        {
-                            HandleRetryRefuel(wp, currentRefuelLoco, ordersHelper);
-                        }
-                        else
-                        {
-                            HandleUnableToRefuel(wp, currentRefuelLoco);
-                        }
-                        return false;
-                    }
-                }
-                else
-                {
-                    //ModLocator.Loader.LogDebug($"Still refueling");
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        private void HandleIncrementingRefuelWaitingTime(BaseLocomotive currentRefuelLoco, float tickIntervalSeconds)
-        {
-            if (_timeSpentWaitingForRefuel.TryGetValue(currentRefuelLoco.id, out float elapsed))
-            {
-                _timeSpentWaitingForRefuel[currentRefuelLoco.id] = elapsed + tickIntervalSeconds;
-            }
-            else
-            {
-                _timeSpentWaitingForRefuel[currentRefuelLoco.id] = tickIntervalSeconds;
-            }
-        }
-
-        private bool ShouldRetryRefuel(string locoId)
-        {
-            if (_refuelRetryAttemptsByLocoId.TryGetValue(locoId, out int attempts) && attempts > _maxRefuelRetryAttempts)
-            {
-                return false;
-            }
-            return true;
-        }
-
-        private void HandleRetryRefuel(ManagedWaypoint wp, BaseLocomotive currentRefuelLoco, AutoEngineerOrdersHelper ordersHelper)
-        {
-            if (_refuelRetryAttemptsByLocoId.TryGetValue(currentRefuelLoco.id, out int attempts))
-            {
-                _refuelRetryAttemptsByLocoId[currentRefuelLoco.id] = attempts + 1;
-            }
-            else
-            {
-                _refuelRetryAttemptsByLocoId[currentRefuelLoco.id] = 1;
-            }
-            _timeSpentWaitingForRefuel.Remove(currentRefuelLoco.id);
-
-            int maxSpeed = wp.MaxSpeedAfterRefueling;
-            if (maxSpeed == 0) maxSpeed = 35;
-            ordersHelper.SetOrdersValue(null, null, maxSpeedMph: maxSpeed, null, null);
-
-            wp.RefuelLoaderAnimated = false;
-            wp.RepositioningToRetryRefuel = true;
-            refuelService.SetCarLoaderSequencerWantsLoading(wp, false);
-
-            refuelService.RepositionToRetryRefueling(wp, currentRefuelLoco, ordersHelper);
-            WaypointQueueController.Shared.UpdateWaypoint(wp);
-        }
-
-        private void HandleUnableToRefuel(ManagedWaypoint wp, BaseLocomotive currentRefuelLoco)
-        {
-            if (!_locoIdsWithTroubleRefuelingByWaypointLocoId.ContainsKey(wp.Locomotive.id))
-            {
-                _locoIdsWithTroubleRefuelingByWaypointLocoId.Add(wp.Locomotive.id, []);
-            }
-            if (!(_locoIdsWithTroubleRefuelingByWaypointLocoId.TryGetValue(wp.Locomotive.id, out var set) && set.Contains(currentRefuelLoco.id)))
-            {
-                _locoIdsWithTroubleRefuelingByWaypointLocoId[wp.Locomotive.id].Add(currentRefuelLoco.id);
-
-                string message = $"""
-                                The Auto Engineer could not accurately position {currentRefuelLoco.Ident} for refueling.
-                                
-                                Please switch {wp.Locomotive.Ident} to Manual, position {currentRefuelLoco.Ident} for refueling, and then return {wp.Locomotive.Ident} to AE Waypoint mode to continue the queue.
-                                """;
-                Console.Log(message);
-                currentRefuelLoco.PostNotice("wpq-refuel", "Needs help refueling!");
-                ModalAlertController.PresentOkay("Refueling Issue", message);
-            }
-        }
-
-        private BaseLocomotive GetNextLocomotiveForRefuel(ManagedWaypoint waypoint)
-        {
-            if (waypoint.RefuelLocoIdsQueue.Count == 0)
-            {
-                return null;
-            }
-            return carService.GetLocoById(waypoint.RefuelLocoIdsQueue.First());
-        }
-
-        internal bool IsTrainStopped(ManagedWaypoint wp)
+        // Both ends of the train have stood still for 2 s.
+        internal static bool IsTrainStopped(ICarService carService, ManagedWaypoint wp)
         {
             List<Car> coupled = [.. carService.EnumerateCoupled(wp.Locomotive)];
-            Car firstCar = coupled.First();
-            Car lastCar = coupled.Last();
-            //ModLocator.Loader.LogDebug($"First car {firstCar.Ident} is {(firstCar.IsStopped(2) ? "stopped for 2" : "NOT stopped")} and last car {lastCar.Ident} is {(lastCar.IsStopped(2) ? "stopped for 2" : "NOT stopped")}");
-
-            return firstCar.IsStopped(2) && lastCar.IsStopped(2);
-        }
-
-        private bool TryEndWaiting(ManagedWaypoint wp)
-        {
-            if (wp.WaitMode == ManagedWaypoint.WaitType.CarsNotSpotted)
-            {
-                var consist = carService.EnumerateCoupled(wp.Locomotive);
-                if (!IsAnyCarSpotted(consist))
-                {
-                    ModLocator.Loader.Log($"Loco {wp.Locomotive.Ident} done waiting");
-                    wp.FinishWaiting();
-                    WaypointQueueController.Shared.UpdateWaypoint(wp);
-                    return true;
-                }
-                else
-                {
-                    return false;
-                }
-            }
-
-            if (TimeWeather.Now.TotalSeconds >= wp.WaitUntilGameTotalSeconds)
-            {
-                ModLocator.Loader.Log($"Loco {wp.Locomotive.Ident} done waiting");
-                wp.FinishWaiting();
-                WaypointQueueController.Shared.UpdateWaypoint(wp);
-                return true;
-            }
-            //ModLocator.Loader.LogDebug($"Loco {wp.Locomotive.Ident} still waiting");
-            return false;
-        }
-
-        private bool IsAnyCarSpotted(IEnumerable<Car> consist)
-        {
-            foreach (var car in consist)
-            {
-                var hasDestination = opsControllerWrapper.TryGetCarDesination(car, out _, out bool isAtDestination);
-                if (hasDestination && isAtDestination)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private bool TryBeginWaiting(ManagedWaypoint wp)
-        {
-            return wp.WillWait && (TryBeginWaitingDuration(wp) || TryBeginWaitingUntilTime(wp) || TryBeginWaitingUntilCarsNotSpotted(wp));
-        }
-
-        private bool TryBeginWaitingDuration(ManagedWaypoint wp)
-        {
-            if (wp.WaitMode == ManagedWaypoint.WaitType.Duration && wp.WaitForDurationMinutes > 0)
-            {
-                GameDateTime waitUntilTime = TimeWeather.Now.AddingMinutes(wp.WaitForDurationMinutes);
-                wp.StatusLabel = "Waiting before continuing";
-                wp.WaitUntilGameTotalSeconds = waitUntilTime.TotalSeconds;
-                wp.CurrentlyWaiting = true;
-                ModLocator.Loader.Log($"Loco {wp.Locomotive.Ident} waiting {wp.WaitForDurationMinutes}m until {waitUntilTime}");
-                WaypointQueueController.Shared.UpdateWaypoint(wp);
-                return true;
-            }
-            return false;
-        }
-
-        private bool TryBeginWaitingUntilTime(ManagedWaypoint wp)
-        {
-            if (wp.WaitMode == ManagedWaypoint.WaitType.SpecificTime)
-            {
-                if (TimetableReader.TryParseTime(wp.WaitUntilTimeString, out TimetableTime time))
-                {
-                    wp.SetWaitUntilByMinutes(time.Minutes, out GameDateTime waitUntilTime);
-                    wp.StatusLabel = "Waiting before continuing";
-                    wp.CurrentlyWaiting = true;
-                    ModLocator.Loader.Log($"Loco {wp.Locomotive.Ident} waiting until {waitUntilTime}");
-                    WaypointQueueController.Shared.UpdateWaypoint(wp);
-                    return true;
-                }
-                else
-                {
-                    ModLocator.Loader.LogError($"Error parsing time: \"{wp.WaitUntilTimeString}\"");
-                    Toast.Present("Waypoint wait time must be in HH:MM 24-hour format.");
-                    return false;
-                }
-            }
-            return false;
-        }
-
-        private bool TryBeginWaitingUntilCarsNotSpotted(ManagedWaypoint wp)
-        {
-            if (wp.WaitMode == ManagedWaypoint.WaitType.CarsNotSpotted)
-            {
-                wp.StatusLabel = $"Waiting until cars are not spotted";
-                wp.CurrentlyWaiting = true;
-                ModLocator.Loader.Log($"Loco {wp.Locomotive.Ident} waiting until cars are not spotted");
-                WaypointQueueController.Shared.UpdateWaypoint(wp);
-                return true;
-            }
-            return false;
-        }
-
-
-        private void ResolveBrakeSystemOnCouple(ManagedWaypoint waypoint)
-        {
-            if (!waypoint.IsCoupling) return;
-            ModLocator.Loader.LogDebug($"Resolving coupling orders for loco {waypoint.Locomotive.Ident}");
-            foreach (Car car in carService.EnumerateCoupled(waypoint.Locomotive))
-            {
-                if (waypoint.ConnectAirOnCouple)
-                {
-                    carService.ConnectAir(car);
-                }
-
-                if (waypoint.ReleaseHandbrakesOnCouple)
-                {
-                    car.SetHandbrake(false);
-                }
-            }
-        }
-
-        private void ResolvePostCouplingCut(ManagedWaypoint waypoint)
-        {
-            if (!waypoint.TryResolveCoupleToCar(out Car carCoupledTo))
-            {
-                throw new UncouplingException($"Cannot perform post coupling cut due to unresolvable CoupledToCarId {waypoint.CoupleToCarId}", waypoint);
-            }
-
-            bool isPickup = waypoint.PostCouplingCutMode == ManagedWaypoint.PostCoupleCutType.Pickup;
-
-            List<Car> carsToCut = [];
-            if (waypoint.WillUncoupleByCount)
-            {
-                carsToCut = uncouplingService.FindPickupOrDropoffByCount(waypoint, carCoupledTo);
-                if (carsToCut.Count == 0)
-                {
-                    string message = $"Waypoint for {waypoint.Locomotive.Ident} was configured to perform a post-coupling cut by count with {waypoint.NumberOfCarsToCut} cars to cut, but since no cars can be cut it will remain coupled to all cars.";
-                    Console.Log(message);
-                    ModLocator.Loader.Log(message);
-                    ModLocator.Loader.Log($"Waypoint was: {waypoint}");
-                    return;
-                }
-            }
-            if (waypoint.WillUncoupleByDestination && !string.IsNullOrEmpty(waypoint.UncoupleDestinationId))
-            {
-                carsToCut = isPickup
-                    ? uncouplingService.FindPickupByDestination(waypoint, carCoupledTo) : uncouplingService.FindDropoffByDestination(waypoint, carCoupledTo);
-
-                if (!isPickup && carsToCut.Count == 0)
-                {
-                    string message = $"{waypoint.Locomotive.Ident} has no cars to drop off for {DescribeUncoupleDestination(waypoint)}, so it will remain coupled to all cars.";
-                    Console.Log(message);
-                    ModLocator.Loader.Log(message);
-                    return;
-                }
-            }
-
-            if (waypoint.WillUncoupleBySpecificCar)
-            {
-                carsToCut = isPickup
-                    ? uncouplingService.FindPickupBySpecificCar(waypoint, carCoupledTo)
-                    : uncouplingService.FindDropoffBySpecificCar(waypoint, carCoupledTo);
-            }
-
-            if (waypoint.WillUncoupleAllExceptLocomotives)
-            {
-                carsToCut = isPickup
-                    ? uncouplingService.FindPickupAllExceptLocomotives(waypoint, carCoupledTo)
-                    : uncouplingService.FindDropoffAllExceptLocomotives(waypoint, carCoupledTo);
-
-                if (carsToCut.Count == 0 && isPickup)
-                {
-                    ModLocator.Loader.Log($"Pickup all except locomotives found zero cars to cut.");
-                    return;
-                }
-            }
-
-            if (waypoint.WillUncoupleByOpsPositionStatus)
-            {
-                carsToCut = isPickup
-                    ? uncouplingService.FindPickupByWaybillStatus(waypoint, carCoupledTo)
-                    : uncouplingService.FindDropoffByWaybillStatus(waypoint, carCoupledTo);
-
-                if (!isPickup && carsToCut.Count == 0)
-                {
-                    string message = $"{waypoint.Locomotive.Ident} has no cars to drop off with waybill status {waypoint.MatchOpsPositionStatus}, so it will remain coupled to all cars.";
-                    Console.Log(message);
-                    ModLocator.Loader.Log(message);
-                    return;
-                }
-            }
-
-            if (isPickup && carsToCut.Count == 0)
-            {
-                string message = $"Waypoint for {waypoint.Locomotive.Ident} was configured to perform a post-coupling cut, but since no cars can be cut it will remain coupled to all cars.";
-                Console.Log(message);
-                ModLocator.Loader.Log(message);
-                ModLocator.Loader.Log($"Waypoint was: {waypoint}");
-                return;
-            }
-
-            uncouplingService.PerformCut(carsToCut, waypoint);
-        }
-
-        private static string DescribeUncoupleDestination(ManagedWaypoint waypoint)
-        {
-            return string.IsNullOrEmpty(waypoint.DestinationSearchText) ? waypoint.UncoupleDestinationId : waypoint.DestinationSearchText;
-        }
-
-        private void ResolveUncouplingOrders(ManagedWaypoint waypoint)
-        {
-            ModLocator.Loader.Log($"Resolving uncoupling orders for {waypoint.Locomotive.Ident}");
-            List<Car> carsToCut = [];
-            if (waypoint.WillUncoupleByCount && waypoint.NumberOfCarsToCut > 0)
-            {
-                carsToCut = uncouplingService.FindCutByCount(waypoint);
-            }
-
-            if (waypoint.WillUncoupleByDestination && !string.IsNullOrEmpty(waypoint.UncoupleDestinationId))
-            {
-                carsToCut = uncouplingService.FindCutByDestination(waypoint);
-
-                if (carsToCut.Count == 0)
-                {
-                    string message = $"{waypoint.Locomotive.Ident} has no cars to cut for {DescribeUncoupleDestination(waypoint)}, so no cars were uncoupled.";
-                    Console.Log(message);
-                    ModLocator.Loader.Log(message);
-                    return;
-                }
-            }
-
-            if (waypoint.WillUncoupleBySpecificCar)
-            {
-                carsToCut = uncouplingService.FindCutBySpecificCar(waypoint);
-            }
-
-            if (waypoint.WillUncoupleAllExceptLocomotives)
-            {
-                uncouplingService.UncoupleAllExceptLocomotives(waypoint);
-                return;
-            }
-
-            if (waypoint.WillUncoupleByOpsPositionStatus)
-            {
-                carsToCut = uncouplingService.FindCutByWaybillStatus(waypoint);
-
-                if (carsToCut.Count == 0)
-                {
-                    string message = $"{waypoint.Locomotive.Ident} has no cars to cut with waybill status {waypoint.MatchOpsPositionStatus}, so no cars were uncoupled.";
-                    Console.Log(message);
-                    ModLocator.Loader.Log(message);
-                    return;
-                }
-            }
-
-            uncouplingService.PerformCut(carsToCut, waypoint);
-        }
-
-        internal void ApplyTimetableSymbolIfRequested(ManagedWaypoint waypoint)
-        {
-            if (String.IsNullOrEmpty(waypoint.TimetableSymbol)) return;
-
-            string crewId = waypoint.Locomotive?.trainCrewId;
-
-            if (string.IsNullOrEmpty(crewId))
-            {
-                var ident = (waypoint.Locomotive != null)
-                    ? waypoint.Locomotive.Ident.ToString()
-                    : "This locomotive";
-
-                ModalAlertController.Present(
-                    "No crew assigned to train",
-                    $"{ident} has no crew. Assign a crew to use timetable symbols.",
-                    new (bool, string)[] { (true, "OK") },
-                    _ => { }
-                );
-                return;
-            }
-
-            string symbol = waypoint.TimetableSymbol == RemoveTrainSymbolString ? null : waypoint.TimetableSymbol;
-            StateManager.ApplyLocal(new RequestSetTrainCrewTimetableSymbol(crewId, symbol));
-            ModLocator.Loader.Log($"[Timetable] {(symbol ?? "None")} for {waypoint.Locomotive.Ident}");
+            return coupled.First().IsStopped(2) && coupled.Last().IsStopped(2);
         }
     }
 }
