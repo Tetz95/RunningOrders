@@ -165,6 +165,13 @@ namespace WaypointQueue
                     continue;
                 }
 
+                // Couple to nearest without stopping at the waypoint: the coupling order goes out while still approaching
+                if (entry.UnresolvedWaypoint != null && _autoEngineerService.HasActiveWaypoint(ordersHelper)
+                    && _waypointResolver.TryCoupleNearestEarly(entry.UnresolvedWaypoint, ordersHelper))
+                {
+                    continue;
+                }
+
                 if (ResendIfPlannedForOtherLength(entry, ordersHelper))
                 {
                     continue;

@@ -675,7 +675,59 @@ namespace WaypointQueue
             }
         }
 
-        private static readonly MethodInfo PlannerRouteStart = AccessTools.Method(typeof(AutoEngineerPlanner), "RouteStartLocation", [typeof(float).MakeByRefType()]);
+        // Couple to nearest without stopping at the waypoint: the car was searched for only on arrival, and 2026.1's
+        // engineer brakes to a stand at the end of its route (the waypoint) before the coupling order went out. Searched
+        // as the train runs in on its last leg (no turn-back left), ahead of the mark facing away from the approach, the
+        // coupling order replaces the waypoint and the train runs on to the car. Nothing found, or the best route to the
+        // car not over the waypoint (a car the train would have to back up for): left to arrival, as before.
+        private const float CoupleNearestRetrySeconds = 3f;
+        private readonly Dictionary<string, float> _coupleNearestEarlyTried = [];
+
+        internal bool TryCoupleNearestEarly(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper)
+        {
+            if (wp.StopAtWaypoint || !wp.WillSeekNearestCoupling || wp.CurrentlyCouplingNearby || wp.WaitingWasSkipped)
+            {
+                return false;
+            }
+            if (_coupleNearestEarlyTried.TryGetValue(wp.Id, out float tried) && Time.time - tried < CoupleNearestRetrySeconds)
+            {
+                return false;
+            }
+            if (_coupleNearestEarlyTried.Count > 200)
+            {
+                _coupleNearestEarlyTried.Clear();
+            }
+            _coupleNearestEarlyTried[wp.Id] = Time.time;
+            try
+            {
+                if (!TryGetLastLegApproach(wp, out Vector3 approachFrom))
+                {
+                    return false;
+                }
+                Location ahead = OrientedAwayFrom(wp.Location, approachFrom);
+                if (!couplingService.TryFindNearbyCar(wp, ahead, out Car car, out Car.LogicalEnd end, out Location location, out string failure))
+                {
+                    ModLocator.Loader.LogDebug($"{wp.Locomotive.Ident}: no car to couple found ahead of the waypoint yet ({failure}); searching again on arrival");
+                    return false;
+                }
+                if (!RouteRunsOverWaypoint(wp, location))
+                {
+                    ModLocator.Loader.LogDebug($"{wp.Locomotive.Ident}: the best route to {car.Ident} doesn't run over the waypoint; coupling on arrival");
+                    return false;
+                }
+                ModLocator.Loader.Log($"{wp.Locomotive.Ident} is on its last approach to the waypoint; coupling to the nearest car {car.Ident} without stopping");
+                couplingService.SendNearbyCoupling(wp, ordersHelper, car, end, location);
+                _coupleNearestEarlyTried.Remove(wp.Id);
+                return true;
+            }
+            catch (Exception e)
+            {
+                ModLocator.Loader.LogDebug($"{wp.Locomotive.Ident}: early search for the nearest car failed ({e.Message}); searching on arrival");
+                return false;
+            }
+        }
+
+        private static readonly MethodInfo PlannerRouteStart =AccessTools.Method(typeof(AutoEngineerPlanner), "RouteStartLocation", [typeof(float).MakeByRefType()]);
 
         private static readonly AccessTools.FieldRef<AutoEngineerPlanner, float> PlannerMaximumLength =
             AccessTools.FieldRefAccess<AutoEngineerPlanner, float>("_maximumLength");
