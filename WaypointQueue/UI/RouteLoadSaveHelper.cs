@@ -39,6 +39,9 @@ namespace WaypointQueue.UI
 
         public static string RoutesDirectory => Path.Combine(ModDataDirectory, "Routes");
 
+        // Route files since the 2026-11-19 rewrite (waypoints as order + progress); older files aren't read.
+        private const int RouteFileVersion = 3;
+
         public class RouteDefinitionSaveState
         {
             public int Version { get; set; }
@@ -175,7 +178,7 @@ namespace WaypointQueue.UI
 
                 RouteDefinitionSaveState saveState = new RouteDefinitionSaveState
                 {
-                    Version = 2,
+                    Version = RouteFileVersion,
                     RouteDefinitions = routesToSave
                 };
 
@@ -202,6 +205,11 @@ namespace WaypointQueue.UI
 
                 string json = File.ReadAllText(path);
                 RouteDefinitionSaveState data = JsonConvert.DeserializeObject<RouteDefinitionSaveState>(json);
+                if (data == null || data.Version < RouteFileVersion)
+                {
+                    ModalAlertController.PresentOkay("Can't load these routes", "They were saved by an older version of Waypoint Queue (Tetz fork), before 2026-11-19. Make the routes again.");
+                    return;
+                }
                 ModLocator.Loader.Log($"Loaded {data.RouteDefinitions?.Count ?? 0} routes from '{_filename}'.");
 
                 ModStateManager.Shared.RegisterRoutesFromLoad(data.RouteDefinitions);

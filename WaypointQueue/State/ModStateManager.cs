@@ -178,7 +178,7 @@ namespace WaypointQueue.State
                 {
                     if (String.IsNullOrEmpty(_waypointModStorage.Version))
                     {
-                        _waypointModStorage.Version = "2";
+                        _waypointModStorage.Version = "3";
                     }
                 }
 
@@ -825,7 +825,7 @@ namespace WaypointQueue.State
                 _prevLocoWaypointStates.Clear();
                 _prevRoutes.Clear();
 
-                _waypointModStorage.Version = "2";
+                _waypointModStorage.Version = "3";
             }
         }
     }

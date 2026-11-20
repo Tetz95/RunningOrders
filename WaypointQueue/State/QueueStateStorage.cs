@@ -12,7 +12,7 @@ namespace WaypointQueue.State
     {
         private readonly KeyValueObject _keyValueObject;
 
-        public readonly string ObjectId = "_waypointQueueMod.queueStates";
+        public readonly string ObjectId = "_tetzWaypointQueue.queueStates";  // since the 2026-11-19 rewrite (clean start)
 
         // Each key should be a locomotive id
         public int Count => _keyValueObject.Keys.Count();
@@ -93,22 +93,6 @@ namespace WaypointQueue.State
                 LocoWaypointState state = LocoWaypointState.FromPropertyValue(value);
                 action(state);
             }, callInitial);
-        }
-
-        public void MigrateQueueStatesFromJsonStringsToPropertyValues()
-        {
-            Dictionary<string, LocoWaypointState> pairs = [];
-            foreach (var locoId in _keyValueObject.Keys)
-            {
-                string json = _keyValueObject[locoId];
-                LocoWaypointState state = JsonConvert.DeserializeObject<LocoWaypointState>(json);
-                pairs.Add(locoId, state);
-            }
-
-            foreach (var item in pairs)
-            {
-                _keyValueObject[item.Key] = item.Value.ToPropertyValue();
-            }
         }
 
         public void ResetData()

@@ -40,7 +40,7 @@ namespace WaypointQueue
 
             route.Id = dict[ValueKeys.Id].StringValue;
             route.Name = dict[ValueKeys.Name].StringValue;
-            route.Waypoints = dict[ValueKeys.Waypoints].ArrayValue.ToList().Select(v => ManagedWaypoint.FromPropertyValue(v)).ToList();
+            route.Waypoints = dict[ValueKeys.Waypoints].ArrayValue.ToList().Select(v => ManagedWaypoint.FromPropertyValue(v)).Where(w => w != null).ToList();
             route.Section = dict[ValueKeys.Section].StringValue;
             route.CreatedAt = DateTime.Parse(dict[ValueKeys.CreatedAt].StringValue, null, System.Globalization.DateTimeStyles.RoundtripKind);
             route.UpdatedAt = DateTime.Parse(dict[ValueKeys.UpdatedAt].StringValue, null, System.Globalization.DateTimeStyles.RoundtripKind);

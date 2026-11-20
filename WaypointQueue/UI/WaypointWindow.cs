@@ -1762,7 +1762,7 @@ if (waypoint.WillRefuel)
                     field.Spacer();
                     field.AddButtonCompact("Skip wait", delegate
                     {
-                        waypoint.ClearWaiting();
+                        waypoint.FinishWaiting();
                         onWaypointChange(waypoint);
                     });
                     field.Spacer(8f);

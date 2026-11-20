@@ -14,20 +14,25 @@ using static Model.Ops.OpsController;
 
 namespace WaypointQueue
 {
+    // A queued waypoint: the player's order (WaypointOrder, never changed by running it) and its progress
+    // (WaypointProgress). The properties below keep the names the rest of the mod uses. Settings pass through to the
+    // order; running state to the progress. A few read the progress over the order where the run replaced what was asked
+    // for: the mark (moved to a found car's coupler or a refuel spot), the car to couple, stop at waypoint, the coupling
+    // search (done), refuel and wait (done).
+    [JsonObject(MemberSerialization.OptIn)]
     public class ManagedWaypoint : IStorableProperty
     {
+        // The stored format (2026-11-19 rewrite; older data is not read: a clean start).
+        internal const int StorageVersion = 3;
+
         // Used for JSON deserialization
         public ManagedWaypoint() { }
 
-        [JsonProperty]
-        public int? Version { get; set; }
-
         public ManagedWaypoint(BaseLocomotive locomotive, Location location, string coupleToCarId = "")
         {
-            Version = 1;
             LocomotiveId = locomotive?.id ?? null;
-            LocationString = Graph.LocationToString(location);
-            CoupleToCarId = coupleToCarId;
+            Order.Mark = Graph.LocationToString(location);
+            Order.CoupleToCarId = coupleToCarId;
 
             ConnectAirOnCouple = ModLocator.Settings.ConnectAirByDefault;
             ReleaseHandbrakesOnCouple = ModLocator.Settings.ReleaseHandbrakesByDefault;
@@ -39,7 +44,7 @@ namespace WaypointQueue
 
             if (ModLocator.Settings.Input.coupleToNearestShortcut.IsPressed() && String.IsNullOrEmpty(coupleToCarId))
             {
-                CouplingSearchMode = (ManagedWaypoint.CoupleSearchMode)ModLocator.Settings.DefaultCouplingSearchMode;
+                CouplingSearchMode = (CoupleSearchMode)ModLocator.Settings.DefaultCouplingSearchMode;
             }
             else if (ModLocator.Settings.Input.uncoupleShortcut.IsPressed())
             {
@@ -50,16 +55,6 @@ namespace WaypointQueue
                 UncouplingMode = (UncoupleMode)ModLocator.Settings.DefaultUncouplingMode;
                 ConfigureForKicking();
             }
-
-            //if (ModLocator.Settings.AdvancedSettings.EnableThenUncoupleByDefault)
-            //{
-            //    UncouplingMode = (UncoupleMode) ModLocator.Settings.DefaultUncouplingMode;
-            //}
-
-            //if (ModLocator.Settings.AdvancedSettings.ShowPostCouplingCutByDefault && !String.IsNullOrEmpty(coupleToCarId))
-            //{
-            //    SetDefaultPostCouplingCut();
-            //}
         }
 
         public enum WaitType
@@ -112,7 +107,12 @@ namespace WaypointQueue
         [JsonProperty]
         public string LocomotiveId { get; private set; }
 
-        [JsonIgnore]
+        [JsonProperty]
+        public WaypointOrder Order { get; private set; } = new();
+
+        [JsonProperty]
+        public WaypointProgress Progress { get; private set; } = new();
+
         public virtual BaseLocomotive Locomotive
         {
             get
@@ -127,74 +127,111 @@ namespace WaypointQueue
             }
         }
 
-        [JsonProperty]
-        public string LocationString { get; private set; }
+        // ---------- The mark ----------
+
+        // Where the train goes now: the progress's mark once the run moved it, else the order's.
+        public string LocationString => Progress.Mark ?? Order.Mark;
 
         // Railroader 2026.1: how the train should stand at the waypoint (see QueuedPose); null for any way it arrives.
-        [JsonProperty]
-        public QueuedPose Pose { get; set; }
+        public QueuedPose Pose { get => Order.Pose; set => Order.Pose = value; }
 
+        private string _locationFor;
         private Location _location;
 
-        [JsonIgnore]
         public virtual Location Location
         {
             get
             {
-                if (_location != Location.Invalid)
+                string current = LocationString;
+                if (_locationFor == current && _location != Location.Invalid)
                 {
                     return _location;
                 }
+                _locationFor = current;
                 try
                 {
-                    Location loc = Graph.Shared.ResolveLocationString(LocationString);
-                    _location = loc.Clamped();
-                    return _location;
+                    _location = Graph.Shared.ResolveLocationString(current).Clamped();
                 }
                 catch (Exception e)
                 {
-                    ModLocator.Loader.LogError($"Failed to resolve location string {LocationString}: {e}");
+                    ModLocator.Loader.LogError($"Failed to resolve location string {current}: {e}");
                     _location = Location.Invalid;
-                    return _location;
                 }
+                return _location;
             }
         }
 
-        [JsonProperty]
-        public string CoupleToCarId { get; internal set; }
+        // The run moves the train's mark (a found car's coupler, a refuel spot): progress only, the order keeps the mark
+        // the player picked.
+        public void OverwriteLocation(Location loc)
+        {
+            Progress.Mark = Graph.LocationToString(loc.Clamped());
+        }
 
-        [JsonIgnore]
+        // The player picked a new mark for this waypoint: the order changes and the waypoint starts over.
+        public void SetMark(Location loc)
+        {
+            Order.Mark = Graph.LocationToString(loc.Clamped());
+            Progress = new WaypointProgress();
+        }
+
+        // ---------- Movement ----------
+
+        public bool StopAtWaypoint { get => Order.StopAtWaypoint || Progress.MustStop; set => Order.StopAtWaypoint = value; }
+        public bool WillLimitPassingSpeed { get => Order.WillLimitPassingSpeed; set => Order.WillLimitPassingSpeed = value; }
+        public int WaypointTargetSpeed { get => Order.WaypointTargetSpeed; set => Order.WaypointTargetSpeed = value; }
+        public bool WillChangeMaxSpeed { get => Order.WillChangeMaxSpeed; set => Order.WillChangeMaxSpeed = value; }
+        public int MaxSpeedForChange { get => Order.MaxSpeedForChange; set => Order.MaxSpeedForChange = value; }
+        public string TimetableSymbol { get => Order.TimetableSymbol; set => Order.TimetableSymbol = value; }
+        public string Name { get => Order.Name; set => Order.Name = value; }
+        public string Notes { get => Order.Notes; set => Order.Notes = value; }
+
+        // ---------- Coupling ----------
+
+        // The car to couple: the one the run settled on (search result), else the one the player picked.
+        public string CoupleToCarId { get => Progress.CouplingCarId ?? Order.CoupleToCarId; internal set => Order.CoupleToCarId = value; }
+
         public Car CoupleToCar { get; internal set; }
 
-        [JsonIgnore]
-        public bool IsCoupling
+        public bool IsCoupling => !string.IsNullOrEmpty(CoupleToCarId);
+
+        // The search for a car on arrival; none once it has run.
+        public virtual CoupleSearchMode CouplingSearchMode
         {
-            get
+            get => Progress.SearchDone ? CoupleSearchMode.None : Order.CouplingSearchMode;
+            set
             {
-                return !string.IsNullOrEmpty(CoupleToCarId);
+                Order.CouplingSearchMode = value;
+                CoupleToCar = null;
+                Order.CoupleToCarId = null;
+                Order.CouplingSearchText = "";
             }
         }
 
-        public bool ConnectAirOnCouple { get; set; }
-        public bool ReleaseHandbrakesOnCouple { get; set; }
-        public bool HasResolvedBrakeSystemOnCouple { get; set; }
-        public bool ApplyHandbrakesOnUncouple { get; set; }
-        public bool BleedAirOnUncouple { get; set; }
-        public bool BottleAirOnUncouple { get; set; }
-        public virtual int NumberOfCarsToCut { get; set; }
-        public virtual bool CountUncoupledFromNearestToWaypoint { get; set; } = true;
+        // The run has searched for the car (found it or not): the waypoint goes on as a coupling to that car, or without.
+        public void CouplingSearchFinished(Car car)
+        {
+            Progress.SearchDone = true;
+            if (car != null)
+            {
+                CoupleToCar = car;
+                Progress.CouplingCarId = car.id;
+                Progress.MustStop = true;
+            }
+        }
 
-        [JsonProperty("TakeOrLeaveCut")]
-        private PostCoupleCutType _postCouplingCutMode = PostCoupleCutType.None;
+        public bool OnlySeekNearbyOnTrackAhead { get => Order.OnlySeekNearbyOnTrackAhead; set => Order.OnlySeekNearbyOnTrackAhead = value; }
+        public string CouplingSearchText { get => Order.CouplingSearchText; set => Order.CouplingSearchText = value; }
+        public string CouplingSearchResultCarId { get => Order.CouplingSearchResultCarId; set => Order.CouplingSearchResultCarId = value; }
+        public bool ConnectAirOnCouple { get => Order.ConnectAirOnCouple; set => Order.ConnectAirOnCouple = value; }
+        public bool ReleaseHandbrakesOnCouple { get => Order.ReleaseHandbrakesOnCouple; set => Order.ReleaseHandbrakesOnCouple = value; }
 
-        [JsonIgnore]
         public virtual PostCoupleCutType PostCouplingCutMode
         {
-            get { return _postCouplingCutMode; }
+            get => Order.PostCouplingCutMode;
             set
             {
-                _postCouplingCutMode = value;
-
+                Order.PostCouplingCutMode = value;
                 if (value == PostCoupleCutType.None)
                 {
                     UncouplingMode = UncoupleMode.None;
@@ -202,42 +239,171 @@ namespace WaypointQueue
             }
         }
 
-        public bool TakeUncoupledCarsAsActiveCut { get; set; }
-
-        [JsonIgnore]
-        public bool CanRefuelNearby
+        public void RemovePostCouplingCut()
         {
-            get { return RefuelPoint != null && RefuelLoadId != null && RefuelLoadId.Length > 0; }
+            PostCouplingCutMode = PostCoupleCutType.None;
+            UncouplingMode = UncoupleMode.None;
         }
 
-        [JsonIgnore]
-        public Vector3 RefuelPoint
+        public bool WillSeekNearestCoupling => CouplingSearchMode == CoupleSearchMode.Nearest;
+        public bool WillSeekSpecificCarCoupling => CouplingSearchMode == CoupleSearchMode.SpecificCar;
+        public bool WillPostCoupleCutPickup => HasAnyCouplingOrders && PostCouplingCutMode == PostCoupleCutType.Pickup;
+        public bool WillPostCoupleCutDropoff => HasAnyCouplingOrders && PostCouplingCutMode == PostCoupleCutType.Dropoff;
+        public bool HasAnyCouplingOrders => IsCoupling || WillSeekNearestCoupling || WillSeekSpecificCarCoupling;
+        public bool HasAnyUncouplingOrders => UncouplingMode != UncoupleMode.None;
+        public bool HasAnyCutOrders => HasAnyUncouplingOrders || (HasAnyCouplingOrders && HasAnyPostCouplingCutOrders);
+        public bool HasAnyPostCouplingCutOrders => HasAnyCouplingOrders && PostCouplingCutMode != PostCoupleCutType.None;
+
+        public bool CurrentlyCouplingNearby { get => Progress.CurrentlyCouplingNearby; set => Progress.CurrentlyCouplingNearby = value; }
+        public bool CurrentlyCouplingSpecificCar { get => Progress.CurrentlyCouplingSpecificCar; set => Progress.CurrentlyCouplingSpecificCar = value; }
+        public bool HasResolvedBrakeSystemOnCouple { get => Progress.HasResolvedBrakeSystemOnCouple; set => Progress.HasResolvedBrakeSystemOnCouple = value; }
+
+        public Car CouplingSearchResultCar
         {
             get
             {
-                return SerializableRefuelPoint.ToVector3();
+                if (!String.IsNullOrEmpty(CouplingSearchResultCarId) && TrainController.Shared.TryGetCarForId(CouplingSearchResultCarId, out Car car))
+                {
+                    return car;
+                }
+                if (!String.IsNullOrEmpty(CouplingSearchText))
+                {
+                    car = TrainController.Shared.CarForString(CouplingSearchText);
+                    CouplingSearchResultCarId = car?.id ?? "";
+                    return car;
+                }
+                return null;
             }
         }
 
-        [JsonProperty]
-        public SerializableVector3 SerializableRefuelPoint { get; set; }
+        // ---------- Cut ----------
 
-        public string RefuelIndustryId { get; set; }
-        public string RefuelLoadId { get; set; }
-        public float RefuelMaxCapacity { get; set; }
-        public bool WillRefuel { get; set; }
-        public bool CurrentlyRefueling { get; set; }
-        public int RefuelingSpeedLimit { get; set; } = 5;
-        public int MaxSpeedAfterRefueling { get; set; }
-        public bool RefuelLoaderAnimated { get; set; }
-        public List<string> RefuelLocoIdsQueue { get; set; } = [];
-        public bool EnableMultipleRefueling { get; set; } = true;
-        public string RefuelLoaderRegisteredId { get; set; }
-        public bool RepositioningToRetryRefuel { get; set; }
+        public virtual UncoupleMode UncouplingMode { get => Order.UncouplingMode; set => Order.UncouplingMode = value; }
+        public virtual int NumberOfCarsToCut { get => Order.NumberOfCarsToCut; set => Order.NumberOfCarsToCut = value; }
+        public virtual bool CountUncoupledFromNearestToWaypoint { get => Order.CountUncoupledFromNearestToWaypoint; set => Order.CountUncoupledFromNearestToWaypoint = value; }
+        // Never for a pick-up or set-out after a coupling: those cuts aren't taken along as the active cut.
+        public bool TakeUncoupledCarsAsActiveCut { get => Order.TakeUncoupledCarsAsActiveCut && !HasAnyPostCouplingCutOrders; set => Order.TakeUncoupledCarsAsActiveCut = value; }
+        public string UncouplingSearchText { get => Order.UncouplingSearchText; set => Order.UncouplingSearchText = value; }
+        public string UncouplingSearchResultCarId { get => Order.UncouplingSearchResultCarId; set => Order.UncouplingSearchResultCarId = value; }
+        public string DestinationSearchText { get => Order.DestinationSearchText; set => Order.DestinationSearchText = value; }
+        public virtual string UncoupleDestinationId { get => Order.UncoupleDestinationId; set => Order.UncoupleDestinationId = value; }
+        public virtual bool ExcludeMatchingCarsFromCut { get => Order.ExcludeMatchingCarsFromCut; set => Order.ExcludeMatchingCarsFromCut = value; }
+        public OpsPositionStatus MatchOpsPositionStatus { get => Order.MatchOpsPositionStatus; set => Order.MatchOpsPositionStatus = value; }
+        public bool ApplyHandbrakesOnUncouple { get => Order.ApplyHandbrakesOnUncouple; set => Order.ApplyHandbrakesOnUncouple = value; }
+        public bool BleedAirOnUncouple { get => Order.BleedAirOnUncouple; set => Order.BleedAirOnUncouple = value; }
+        public bool BottleAirOnUncouple { get => Order.BottleAirOnUncouple; set => Order.BottleAirOnUncouple = value; }
+        public bool CurrentlyWaitingBeforeCutting { get => Progress.CurrentlyWaitingBeforeCutting; set => Progress.CurrentlyWaitingBeforeCutting = value; }
 
-        [JsonIgnore]
+        public bool WillUncoupleByCount => UncouplingMode == UncoupleMode.ByCount;
+        public bool WillUncoupleByDestination => WillUncoupleByDestinationTrack || WillUncoupleByDestinationIndustry || WillUncoupleByDestinationArea;
+        public virtual bool WillUncoupleByNoDestination => UncoupleDestinationId == WaypointResolver.NoDestinationString;
+        public virtual bool WillUncoupleByDestinationTrack => UncouplingMode == UncoupleMode.ByDestinationTrack;
+        public virtual bool WillUncoupleByDestinationIndustry => UncouplingMode == UncoupleMode.ByDestinationIndustry;
+        public virtual bool WillUncoupleByDestinationArea => UncouplingMode == UncoupleMode.ByDestinationArea;
+        public bool WillUncoupleBySpecificCar => UncouplingMode == UncoupleMode.BySpecificCar;
+        public bool WillUncoupleByOpsPositionStatus => UncouplingMode == UncoupleMode.ByOpsPositionStatus;
+        public bool WillUncoupleAllExceptLocomotives => UncouplingMode == UncoupleMode.AllExceptLocomotives;
+
+        public Car UncouplingSearchResultCar
+        {
+            get
+            {
+                if (!String.IsNullOrEmpty(UncouplingSearchResultCarId) && TrainController.Shared.TryGetCarForId(UncouplingSearchResultCarId, out Car car))
+                {
+                    return car;
+                }
+                if (!String.IsNullOrEmpty(UncouplingSearchText))
+                {
+                    car = TrainController.Shared.CarForString(UncouplingSearchText);
+                    UncouplingSearchResultCarId = car?.id ?? "";
+                    return car;
+                }
+                return null;
+            }
+        }
+
+        // ---------- Refuel ----------
+
+        public bool WillRefuel { get => Order.WillRefuel && !Progress.RefuelDone; set => Order.WillRefuel = value; }
+        public SerializableVector3 SerializableRefuelPoint { get => Order.RefuelPoint; set => Order.RefuelPoint = value; }
+        public Vector3 RefuelPoint => Order.RefuelPoint.ToVector3();
+        public bool CanRefuelNearby => RefuelLoadId != null && RefuelLoadId.Length > 0;
+        public string RefuelIndustryId { get => Order.RefuelIndustryId; set => Order.RefuelIndustryId = value; }
+        public string RefuelLoadId { get => Order.RefuelLoadId; set => Order.RefuelLoadId = value; }
+        public string RefuelLoaderRegisteredId { get => Order.RefuelLoaderRegisteredId; set => Order.RefuelLoaderRegisteredId = value; }
+        public int RefuelingSpeedLimit { get => Order.RefuelingSpeedLimit; set => Order.RefuelingSpeedLimit = value; }
+        public bool EnableMultipleRefueling { get => Order.EnableMultipleRefueling; set => Order.EnableMultipleRefueling = value; }
+        public float RefuelMaxCapacity { get => Progress.RefuelMaxCapacity; set => Progress.RefuelMaxCapacity = value; }
+        public bool CurrentlyRefueling { get => Progress.CurrentlyRefueling; set => Progress.CurrentlyRefueling = value; }
+        public int MaxSpeedAfterRefueling { get => Progress.MaxSpeedAfterRefueling; set => Progress.MaxSpeedAfterRefueling = value; }
+        public bool RefuelLoaderAnimated { get => Progress.RefuelLoaderAnimated; set => Progress.RefuelLoaderAnimated = value; }
+        public List<string> RefuelLocoIdsQueue { get => Progress.RefuelLocoIdsQueue; set => Progress.RefuelLocoIdsQueue = value ?? []; }
+        public bool RepositioningToRetryRefuel { get => Progress.RepositioningToRetryRefuel; set => Progress.RepositioningToRetryRefuel = value; }
+
+        // The refuel at this waypoint is over.
+        public void RefuelFinished()
+        {
+            Progress.RefuelDone = true;
+            Progress.CurrentlyRefueling = false;
+        }
+
+        // The player removed the refuel (a re-pick looks for a loader again).
+        public void ClearRefueling()
+        {
+            Order.WillRefuel = false;
+            Order.RefuelLoadId = null;
+            Order.RefuelIndustryId = null;
+        }
+
+        // ---------- Wait ----------
+
+        public bool WillWait { get => Order.WillWait && !Progress.WaitDone; set => Order.WillWait = value; }
+        public WaitType WaitMode { get => Order.WaitMode; set => Order.WaitMode = value; }
+        public string WaitUntilTimeString { get => Order.WaitUntilTimeString; set => Order.WaitUntilTimeString = value; }
+        public TodayOrTomorrow WaitUntilDay { get => Order.WaitUntilDay; set => Order.WaitUntilDay = value; }
+        public int WaitForDurationMinutes { get => Order.WaitForDurationMinutes; set => Order.WaitForDurationMinutes = value; }
+        public OpsPositionStatus WaitUntilWaybillStatus { get => Order.WaitUntilWaybillStatus; set => Order.WaitUntilWaybillStatus = value; }
+        public bool CurrentlyWaiting { get => Progress.CurrentlyWaiting; set => Progress.CurrentlyWaiting = value; }
+        public bool WaitingWasSkipped { get => Progress.WaitingWasSkipped; set => Progress.WaitingWasSkipped = value; }
+        public double WaitUntilGameTotalSeconds { get => Progress.WaitUntilGameTotalSeconds; set => Progress.WaitUntilGameTotalSeconds = value; }
+
+        public void SetWaitUntilByMinutes(int inputMinutesAfterMidnight, out GameDateTime waitUntilTime)
+        {
+            GameDateTime currentTime = TimeWeather.Now;
+            int day = WaitUntilDay == TodayOrTomorrow.Today ? currentTime.Day : currentTime.Day + 1;
+            waitUntilTime = new GameDateTime(day, 0).AddingMinutes(inputMinutesAfterMidnight);
+            WaitUntilGameTotalSeconds = waitUntilTime.TotalSeconds;
+        }
+
+        // The wait is over (its time came, or the player skipped it).
+        public void FinishWaiting()
+        {
+            if (Progress.CurrentlyWaiting)
+            {
+                Progress.WaitingWasSkipped = true;
+            }
+            Progress.WaitDone = true;
+            Progress.CurrentlyWaiting = false;
+        }
+
+        // The player removed the wait from the waypoint.
+        public void ClearWaiting()
+        {
+            ModLocator.Loader.LogDebug($"Clear waiting for {Locomotive?.Ident} at {LocationString}");
+            Order.WillWait = false;
+            Order.WaitMode = WaitType.Duration;
+            Order.WaitUntilTimeString = "";
+            Order.WaitUntilDay = TodayOrTomorrow.Today;
+            Order.WaitForDurationMinutes = 0;
+            FinishWaiting();
+        }
+
+        // ---------- Status ----------
+
+        public string StatusLabel { get => Progress.StatusLabel; set => Progress.StatusLabel = value; }
+        public List<WaypointError> Errors { get => Progress.Errors; set => Progress.Errors = value ?? []; }
+
         private string _areaName = string.Empty;
-        [JsonIgnore]
         public string AreaName
         {
             get
@@ -250,180 +416,13 @@ namespace WaypointQueue
                 return _areaName;
             }
         }
-        public string TimetableSymbol { get; set; }
 
-        public bool WillWait { get; set; }
-        public bool CurrentlyWaiting { get; set; }
-        public bool WaitingWasSkipped { get; set; } = false;
-        public WaitType WaitMode { get; set; } = WaitType.Duration;
-        public string WaitUntilTimeString { get; set; }
-        public TodayOrTomorrow WaitUntilDay { get; set; } = TodayOrTomorrow.Today;
-        public int WaitForDurationMinutes { get; set; }
-        public double WaitUntilGameTotalSeconds { get; set; }
-        public OpsPositionStatus WaitUntilWaybillStatus { get; set; } = OpsPositionStatus.NotSpotted;
-        public bool StopAtWaypoint { get; set; } = true;
-        public bool WillLimitPassingSpeed { get; set; } = true;
-        public int WaypointTargetSpeed { get; set; } = 0;
-        public bool WillChangeMaxSpeed { get; set; } = false;
-        public int MaxSpeedForChange { get; set; }
-
-
-        [JsonProperty("CouplingSearchMode")]
-        private CoupleSearchMode _couplingSearchMode = CoupleSearchMode.None;
-
-        [JsonIgnore]
-        public virtual CoupleSearchMode CouplingSearchMode
-        {
-            get { return _couplingSearchMode; }
-            set
-            {
-                _couplingSearchMode = value;
-                CoupleToCar = null;
-                CoupleToCarId = null;
-                CouplingSearchText = "";
-
-                //if (value != CoupleSearchMode.None && PostCouplingCutMode == PostCoupleCutType.None &&  ModLocator.Settings.AdvancedSettings.ShowPostCouplingCutByDefault)
-                //{
-                //    SetDefaultPostCouplingCut();
-                //}
-            }
-        }
-
-        public void RemovePostCouplingCut()
-        {
-            PostCouplingCutMode = PostCoupleCutType.None;
-            UncouplingMode = UncoupleMode.None;
-        }
-
-        [JsonProperty("UncouplingMode")]
-        private UncoupleMode _uncouplingMode = UncoupleMode.None;
-
-        [JsonIgnore]
-        public virtual UncoupleMode UncouplingMode
-        {
-            get { return _uncouplingMode; }
-            set
-            {
-                _uncouplingMode = value;
-            }
-        }
-
-        [JsonIgnore]
-        public bool WillUncoupleByCount { get { return UncouplingMode == UncoupleMode.ByCount; } }
-        [JsonIgnore]
-        public bool WillUncoupleByDestination { get { return WillUncoupleByDestinationTrack || WillUncoupleByDestinationIndustry || WillUncoupleByDestinationArea; } }
-        [JsonIgnore]
-        public virtual bool WillUncoupleByNoDestination => UncoupleDestinationId == WaypointResolver.NoDestinationString;
-        [JsonIgnore]
-        public virtual bool WillUncoupleByDestinationTrack { get { return UncouplingMode == UncoupleMode.ByDestinationTrack; } }
-        [JsonIgnore]
-        public virtual bool WillUncoupleByDestinationIndustry { get { return UncouplingMode == UncoupleMode.ByDestinationIndustry; } }
-        [JsonIgnore]
-        public virtual bool WillUncoupleByDestinationArea { get { return UncouplingMode == UncoupleMode.ByDestinationArea; } }
-        [JsonIgnore]
-        public bool WillUncoupleBySpecificCar { get { return UncouplingMode == UncoupleMode.BySpecificCar; } }
-        public bool WillUncoupleByOpsPositionStatus { get { return UncouplingMode == UncoupleMode.ByOpsPositionStatus; } }
-        [JsonIgnore]
-        public bool WillUncoupleAllExceptLocomotives { get { return UncouplingMode == UncoupleMode.AllExceptLocomotives; } }
-
-        [JsonIgnore]
-        public bool WillSeekNearestCoupling { get { return CouplingSearchMode == CoupleSearchMode.Nearest; } }
-        [JsonIgnore]
-        public bool WillSeekSpecificCarCoupling { get { return CouplingSearchMode == CoupleSearchMode.SpecificCar; } }
-
-        [JsonIgnore]
-        public bool WillPostCoupleCutPickup => HasAnyCouplingOrders && PostCouplingCutMode == PostCoupleCutType.Pickup;
-        [JsonIgnore]
-        public bool WillPostCoupleCutDropoff => HasAnyCouplingOrders && PostCouplingCutMode == PostCoupleCutType.Dropoff;
-
-        public bool CurrentlyCouplingNearby { get; set; }
-        public bool CurrentlyCouplingSpecificCar { get; set; }
-
-        [JsonIgnore]
-        public bool HasAnyCouplingOrders { get { return IsCoupling || WillSeekNearestCoupling || WillSeekSpecificCarCoupling; } }
-        [JsonIgnore]
-        public bool HasAnyUncouplingOrders { get { return UncouplingMode != UncoupleMode.None; } }
-        [JsonIgnore]
-        public bool HasAnyCutOrders => HasAnyUncouplingOrders || (HasAnyCouplingOrders && HasAnyPostCouplingCutOrders);
-        [JsonIgnore]
-        public bool HasAnyPostCouplingCutOrders => HasAnyCouplingOrders && PostCouplingCutMode != PostCoupleCutType.None;
-
-        public bool OnlySeekNearbyOnTrackAhead { get; set; } = true;
-
-        public string CouplingSearchText { get; set; } = "";
-
-        public string CouplingSearchResultCarId { get; set; } = "";
-
-        [JsonIgnore]
-        public Car CouplingSearchResultCar
-        {
-            get
-            {
-                // O(1) lookup by id
-                if (!String.IsNullOrEmpty(CouplingSearchResultCarId) && TrainController.Shared.TryGetCarForId(CouplingSearchResultCarId, out Car car))
-                {
-                    return car;
-                }
-
-                if (!String.IsNullOrEmpty(CouplingSearchText))
-                {
-                    // O(n) worst case for searching all cars by Ident text
-                    car = TrainController.Shared.CarForString(CouplingSearchText);
-                    CouplingSearchResultCarId = car?.id ?? "";
-                    return car;
-                }
-                return null;
-            }
-        }
-
-        public string UncouplingSearchText { get; set; } = "";
-        public string UncouplingSearchResultCarId { get; set; } = "";
-
-        [JsonIgnore]
-        public Car UncouplingSearchResultCar
-        {
-            get
-            {
-                // O(1) lookup by id
-                if (!String.IsNullOrEmpty(UncouplingSearchResultCarId) && TrainController.Shared.TryGetCarForId(UncouplingSearchResultCarId, out Car car))
-                {
-                    return car;
-                }
-
-                if (!String.IsNullOrEmpty(UncouplingSearchText))
-                {
-                    // O(n) worst case for searching all cars by Ident text
-                    car = TrainController.Shared.CarForString(UncouplingSearchText);
-                    UncouplingSearchResultCarId = car?.id ?? "";
-                    return car;
-                }
-                return null;
-            }
-        }
-        public string DestinationSearchText { get; set; } = "";
-        public virtual string UncoupleDestinationId { get; set; } = "";
-        public virtual bool ExcludeMatchingCarsFromCut { get; set; }
-        public OpsPositionStatus MatchOpsPositionStatus { get; set; } = OpsPositionStatus.Spotted;
-
-        public bool CurrentlyWaitingBeforeCutting { get; set; }
-
-        public string StatusLabel { get; set; } = "Inactive";
-        public string Name { get; set; } = string.Empty;
-        public string Notes { get; set; } = string.Empty;
-
-        public List<WaypointError> Errors { get; set; } = [];
-
-        private void SetDefaultPostCouplingCut()
-        {
-            PostCouplingCutMode = (PostCoupleCutType)ModLocator.Settings.DefaultPostCouplingCutMode;
-            UncouplingMode = (UncoupleMode)ModLocator.Settings.DefaultPostCouplingCutUncouplingMode;
-        }
+        // ---------- Helpers ----------
 
         public bool IsValidForRoute()
         {
-            bool validLocation = TryResolveLocation(out Location loc);
-            bool validCoupleToCar = String.IsNullOrEmpty(CoupleToCarId) || TryResolveCoupleToCar(out Car coupleToCar);
-
+            bool validLocation = TryResolveLocation(out Location _);
+            bool validCoupleToCar = String.IsNullOrEmpty(CoupleToCarId) || TryResolveCoupleToCar(out Car _);
             return validLocation && validCoupleToCar;
         }
 
@@ -432,26 +431,11 @@ namespace WaypointQueue
             return IsValidForRoute() && Locomotive != null;
         }
 
-        public bool TryResolveLocomotive(out Car loco)
-        {
-            // loco is null if false
-            if (TrainController.Shared.TryGetCarForId(LocomotiveId, out loco))
-            {
-                ModLocator.Loader.LogDebug($"Loaded locomotive {loco.Ident} for ManagedWaypoint");
-            }
-            else
-            {
-                ModLocator.Loader.LogError($"Failed to resolve locomotive {LocomotiveId} for waypoint {Id}");
-            }
-            return loco != null;
-        }
-
         public bool TryResolveLocation(out Location loc)
         {
             try
             {
                 loc = Graph.Shared.ResolveLocationString(LocationString);
-                ModLocator.Loader.LogDebug($"Loaded clamped location {Location} with area {AreaName} for waypoint {Id}");
                 return true;
             }
             catch (Exception e)
@@ -490,17 +474,14 @@ namespace WaypointQueue
             {
                 return true;
             }
-
             if (WillUncoupleByDestinationTrack)
             {
                 return HasValidTrackDestinationId();
             }
-
             if (WillUncoupleByDestinationIndustry)
             {
                 return HasValidIndustryDestinationId();
             }
-
             if (WillUncoupleByDestinationArea)
             {
                 return HasValidAreaDestinationId();
@@ -512,7 +493,7 @@ namespace WaypointQueue
         {
             try
             {
-                OpsCarPosition destinationMatch = OpsController.Shared.ResolveOpsCarPosition(UncoupleDestinationId);
+                OpsController.Shared.ResolveOpsCarPosition(UncoupleDestinationId);
                 return true;
             }
             catch (InvalidOpsCarPositionException)
@@ -544,14 +525,6 @@ namespace WaypointQueue
             return true;
         }
 
-        public void SetWaitUntilByMinutes(int inputMinutesAfterMidnight, out GameDateTime waitUntilTime)
-        {
-            GameDateTime currentTime = TimeWeather.Now;
-            int day = WaitUntilDay == TodayOrTomorrow.Today ? currentTime.Day : currentTime.Day + 1;
-            waitUntilTime = new GameDateTime(day, 0).AddingMinutes(inputMinutesAfterMidnight);
-            WaitUntilGameTotalSeconds = waitUntilTime.TotalSeconds;
-        }
-
         public void ConfigureForKicking()
         {
             StopAtWaypoint = false;
@@ -564,78 +537,32 @@ namespace WaypointQueue
             }
         }
 
-        public void ClearWaiting()
-        {
-            if (CurrentlyWaiting)
-            {
-                WaitingWasSkipped = true;
-            }
-            ModLocator.Loader.LogDebug($"Clear waiting for {Locomotive.Ident} at {LocationString}");
-            WillWait = false;
-            CurrentlyWaiting = false;
-            WaitMode = WaitType.Duration;
-            WaitUntilTimeString = "";
-            WaitUntilDay = TodayOrTomorrow.Today;
-            WaitForDurationMinutes = 0;
-            WaitUntilGameTotalSeconds = 0;
-        }
-
-        public void ClearRefueling()
-        {
-            WillRefuel = false;
-            RefuelLoadId = null;
-            RefuelIndustryId = null;
-        }
-
+        // The player removed the coupling (a re-pick sets it again).
         public void ClearCoupling()
         {
-            CoupleToCarId = null;
             CoupleToCar = null;
             CouplingSearchMode = CoupleSearchMode.None;
-            CouplingSearchText = String.Empty;
+            Order.CoupleToCarId = null;
+            Order.CouplingSearchText = string.Empty;
             PostCouplingCutMode = PostCoupleCutType.None;
+            Progress.CouplingCarId = null;
+            Progress.SearchDone = false;
         }
 
-        public void OverwriteLocation(Location loc)
-        {
-            Location clampedLocation = loc.Clamped();
-            _location = clampedLocation;
-            LocationString = Graph.LocationToString(clampedLocation);
-        }
-
+        // A copy of the order with fresh progress (routes, copying a queue to another locomotive).
         public bool TryCopyForRoute(out ManagedWaypoint copy, BaseLocomotive loco = null)
         {
             if (IsValidForRoute())
             {
-                copy = ManagedWaypoint.FromPropertyValue(this.ToPropertyValue());
-                copy.Id = Guid.NewGuid().ToString();
-                copy.LocomotiveId = loco?.id ?? null;
-                copy.ResetProgress();
+                copy = new ManagedWaypoint
+                {
+                    LocomotiveId = loco?.id ?? null,
+                    Order = Order.Copy(),
+                };
                 return true;
             }
-            else
-            {
-                copy = null;
-                return false;
-            }
-        }
-
-        // Clears the state of a waypoint that is being worked on, so a copy starts fresh instead of
-        // resuming a wait, refuel or coupling that belongs to the original.
-        private void ResetProgress()
-        {
-            CurrentlyWaiting = false;
-            WaitingWasSkipped = false;
-            WaitUntilGameTotalSeconds = 0;
-            CurrentlyRefueling = false;
-            RefuelLocoIdsQueue = [];
-            RepositioningToRetryRefuel = false;
-            HasResolvedBrakeSystemOnCouple = false;
-            CurrentlyCouplingNearby = false;
-            CurrentlyCouplingSpecificCar = false;
-            CurrentlyWaitingBeforeCutting = false;
-            StatusLabel = "Inactive";
-            Errors = [];
+            copy = null;
+            return false;
         }
 
         // Doubles stored as strings are written culture-invariant, so a save written on a machine with
@@ -645,16 +572,10 @@ namespace WaypointQueue
             return value.ToString("R", CultureInfo.InvariantCulture);
         }
 
-        // Older versions wrote these with the machine's culture and double.ToString(), which never adds
-        // group separators, so a comma with no period is a decimal separator.
         internal static double ParseStoredDouble(string value)
         {
             if (String.IsNullOrEmpty(value))
                 return 0;
-
-            if (value.IndexOf(',') >= 0 && value.IndexOf('.') < 0)
-                value = value.Replace(',', '.');
-
             return double.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture);
         }
 
@@ -665,72 +586,14 @@ namespace WaypointQueue
 
         public override bool Equals(object obj)
         {
-            if (obj == null || GetType() != obj.GetType())
+            if (obj is not ManagedWaypoint other)
             {
                 return false;
             }
-
-            var other = (ManagedWaypoint)obj;
-
-            return Id == other.Id &&
-                   LocomotiveId == other.LocomotiveId &&
-                   LocationString == other.LocationString &&
-                   CoupleToCarId == other.CoupleToCarId &&
-                   ConnectAirOnCouple == other.ConnectAirOnCouple &&
-                   ReleaseHandbrakesOnCouple == other.ReleaseHandbrakesOnCouple &&
-                   HasResolvedBrakeSystemOnCouple == other.HasResolvedBrakeSystemOnCouple &&
-                   ApplyHandbrakesOnUncouple == other.ApplyHandbrakesOnUncouple &&
-                   BleedAirOnUncouple == other.BleedAirOnUncouple &&
-                   BottleAirOnUncouple == other.BottleAirOnUncouple &&
-                   NumberOfCarsToCut == other.NumberOfCarsToCut &&
-                   CountUncoupledFromNearestToWaypoint == other.CountUncoupledFromNearestToWaypoint &&
-                   PostCouplingCutMode == other.PostCouplingCutMode &&
-                   TakeUncoupledCarsAsActiveCut == other.TakeUncoupledCarsAsActiveCut &&
-                   SerializableRefuelPoint.Equals(other.SerializableRefuelPoint) &&
-                   RefuelIndustryId == other.RefuelIndustryId &&
-                   RefuelLoadId == other.RefuelLoadId &&
-                   RefuelMaxCapacity.Equals(other.RefuelMaxCapacity) &&
-                   WillRefuel == other.WillRefuel &&
-                   CurrentlyRefueling == other.CurrentlyRefueling &&
-                   RepositioningToRetryRefuel == other.RepositioningToRetryRefuel &&
-                   RefuelingSpeedLimit == other.RefuelingSpeedLimit &&
-                   MaxSpeedAfterRefueling == other.MaxSpeedAfterRefueling &&
-                   RefuelLoaderAnimated == other.RefuelLoaderAnimated &&
-                   RefuelLocoIdsQueue.SequenceEqual(other.RefuelLocoIdsQueue) &&
-                   RefuelLoaderRegisteredId == other.RefuelLoaderRegisteredId &&
-                   EnableMultipleRefueling == other.EnableMultipleRefueling &&
-                   TimetableSymbol == other.TimetableSymbol &&
-                   WillWait == other.WillWait &&
-                   CurrentlyWaiting == other.CurrentlyWaiting &&
-                   WaitingWasSkipped == other.WaitingWasSkipped &&
-                   WaitMode == other.WaitMode &&
-                   WaitUntilTimeString == other.WaitUntilTimeString &&
-                   WaitUntilDay == other.WaitUntilDay &&
-                   WaitForDurationMinutes == other.WaitForDurationMinutes &&
-                   WaitUntilGameTotalSeconds == other.WaitUntilGameTotalSeconds &&
-                   WaitUntilWaybillStatus == other.WaitUntilWaybillStatus &&
-                   StopAtWaypoint == other.StopAtWaypoint &&
-                   WillLimitPassingSpeed == other.WillLimitPassingSpeed &&
-                   WaypointTargetSpeed == other.WaypointTargetSpeed &&
-                   WillChangeMaxSpeed == other.WillChangeMaxSpeed &&
-                   MaxSpeedForChange == other.MaxSpeedForChange &&
-                   CouplingSearchMode == other.CouplingSearchMode &&
-                   UncouplingMode == other.UncouplingMode &&
-                   CurrentlyCouplingNearby == other.CurrentlyCouplingNearby &&
-                   CurrentlyCouplingSpecificCar == other.CurrentlyCouplingSpecificCar &&
-                   OnlySeekNearbyOnTrackAhead == other.OnlySeekNearbyOnTrackAhead &&
-                   CouplingSearchText == other.CouplingSearchText &&
-                   UncouplingSearchText == other.UncouplingSearchText &&
-                   DestinationSearchText == other.DestinationSearchText &&
-                   UncoupleDestinationId == other.UncoupleDestinationId &&
-                   ExcludeMatchingCarsFromCut == other.ExcludeMatchingCarsFromCut &&
-                   MatchOpsPositionStatus == other.MatchOpsPositionStatus &&
-                   (Pose?.SameAs(other.Pose) ?? other.Pose == null || other.Pose.IsEmpty) &&
-                   CurrentlyWaitingBeforeCutting == other.CurrentlyWaitingBeforeCutting &&
-                   StatusLabel == other.StatusLabel &&
-                   Name == other.Name &&
-                   Notes == other.Notes &&
-                   Errors.SequenceEqual(other.Errors);
+            return Id == other.Id
+                && LocomotiveId == other.LocomotiveId
+                && JsonConvert.SerializeObject(Order) == JsonConvert.SerializeObject(other.Order)
+                && JsonConvert.SerializeObject(Progress) == JsonConvert.SerializeObject(other.Progress);
         }
 
         public override int GetHashCode()
@@ -738,248 +601,52 @@ namespace WaypointQueue
             return Id.GetHashCode();
         }
 
+        // Stored in the game's key-value state: the order and the progress as JSON.
         public Value ToPropertyValue()
         {
-            var dictionary = new Dictionary<string, Value>
+            return Value.Dictionary(new Dictionary<string, Value>
             {
+                [ValueKeys.Version] = Value.Int(StorageVersion),
                 [ValueKeys.Id] = Value.String(Id),
-                [ValueKeys.Name] = Value.String(Name),
-                [ValueKeys.Version] = Value.Int(Version ?? 0),
                 [ValueKeys.LocomotiveId] = Value.String(LocomotiveId),
-                [ValueKeys.LocationString] = Value.String(LocationString),
-                [ValueKeys.CoupleToCarId] = Value.String(CoupleToCarId),
-                [ValueKeys.ConnectAirOnCouple] = Value.Bool(ConnectAirOnCouple),
-                [ValueKeys.ReleaseHandbrakesOnCouple] = Value.Bool(ReleaseHandbrakesOnCouple),
-                [ValueKeys.HasResolvedBrakeSystemOnCouple] = Value.Bool(HasResolvedBrakeSystemOnCouple),
-                [ValueKeys.ApplyHandbrakesOnUncouple] = Value.Bool(ApplyHandbrakesOnUncouple),
-                [ValueKeys.BleedAirOnUncouple] = Value.Bool(BleedAirOnUncouple),
-                [ValueKeys.BottleAirOnUncouple] = Value.Bool(BottleAirOnUncouple),
-                [ValueKeys.NumberOfCarsToCut] = Value.Int(NumberOfCarsToCut),
-                [ValueKeys.CountUncoupledFromNearestToWaypoint] = Value.Bool(CountUncoupledFromNearestToWaypoint),
-                [ValueKeys.PostCouplingCutMode] = Value.Int((int)_postCouplingCutMode),
-                [ValueKeys.TakeUncoupledCarsAsActiveCut] = Value.Bool(TakeUncoupledCarsAsActiveCut),
-                [ValueKeys.SerializableRefuelPoint] = SerializableRefuelPoint.ToPropertyValue(),
-                [ValueKeys.RefuelIndustryId] = Value.String(RefuelIndustryId),
-                [ValueKeys.RefuelLoadName] = Value.String(RefuelLoadId),
-                [ValueKeys.RefuelMaxCapacity] = Value.Float(RefuelMaxCapacity),
-                [ValueKeys.WillRefuel] = Value.Bool(WillRefuel),
-                [ValueKeys.CurrentlyRefueling] = Value.Bool(CurrentlyRefueling),
-                [ValueKeys.RepositioningToRetryRefuel] = Value.Bool(RepositioningToRetryRefuel),
-                [ValueKeys.RefuelingSpeedLimit] = Value.Int(RefuelingSpeedLimit),
-                [ValueKeys.MaxSpeedAfterRefueling] = Value.Int(MaxSpeedAfterRefueling),
-                [ValueKeys.RefuelLoaderAnimated] = Value.Bool(RefuelLoaderAnimated),
-                [ValueKeys.RefuelLocoIdsQueue] = Value.Array(RefuelLocoIdsQueue.Select(x => Value.String(x)).ToList()),
-                [ValueKeys.EnableMultipleRefueling] = Value.Bool(EnableMultipleRefueling),
-                [ValueKeys.RefuelLoaderRegisteredId] = Value.String(RefuelLoaderRegisteredId),
-                [ValueKeys.TimetableSymbol] = Value.String(TimetableSymbol),
-                [ValueKeys.WillWait] = Value.Bool(WillWait),
-                [ValueKeys.CurrentlyWaiting] = Value.Bool(CurrentlyWaiting),
-                [ValueKeys.WaitingWasSkipped] = Value.Bool(WaitingWasSkipped),
-                [ValueKeys.WaitMode] = Value.Int((int)WaitMode),
-                [ValueKeys.WaitUntilTimeString] = Value.String(WaitUntilTimeString),
-                [ValueKeys.WaitUntilDay] = Value.Int((int)WaitUntilDay),
-                [ValueKeys.WaitForDurationMinutes] = Value.Int(WaitForDurationMinutes),
-                [ValueKeys.WaitUntilGameTotalSeconds] = Value.String(FormatStoredDouble(WaitUntilGameTotalSeconds)),
-                [ValueKeys.WaitUntilWaybillStatus] = Value.Int((int)WaitUntilWaybillStatus),
-                [ValueKeys.StopAtWaypoint] = Value.Bool(StopAtWaypoint),
-                [ValueKeys.WillLimitPassingSpeed] = Value.Bool(WillLimitPassingSpeed),
-                [ValueKeys.WaypointTargetSpeed] = Value.Int(WaypointTargetSpeed),
-                [ValueKeys.WillChangeMaxSpeed] = Value.Bool(WillChangeMaxSpeed),
-                [ValueKeys.MaxSpeedForChange] = Value.Int(MaxSpeedForChange),
-                [ValueKeys.CouplingSearchMode] = Value.Int((int)_couplingSearchMode),
-                [ValueKeys.UncouplingMode] = Value.Int((int)_uncouplingMode),
-                [ValueKeys.CurrentlyCouplingNearby] = Value.Bool(CurrentlyCouplingNearby),
-                [ValueKeys.CurrentlyCouplingSpecificCar] = Value.Bool(CurrentlyCouplingSpecificCar),
-                [ValueKeys.OnlySeekNearbyOnTrackAhead] = Value.Bool(OnlySeekNearbyOnTrackAhead),
-                [ValueKeys.CouplingSearchText] = Value.String(CouplingSearchText),
-                [ValueKeys.CouplingSearchResultCarId] = Value.String(CouplingSearchResultCarId),
-                [ValueKeys.UncouplingSearchText] = Value.String(UncouplingSearchText),
-                [ValueKeys.UncouplingSearchResultCarId] = Value.String(UncouplingSearchResultCarId),
-                [ValueKeys.DestinationSearchText] = Value.String(DestinationSearchText),
-                [ValueKeys.UncoupleDestinationId] = Value.String(UncoupleDestinationId),
-                [ValueKeys.OpsPositionStatus] = Value.Int((int)MatchOpsPositionStatus),
-                [ValueKeys.ExcludeMatchingCarsFromCut] = Value.Bool(ExcludeMatchingCarsFromCut),
-                [ValueKeys.CurrentlyWaitingBeforeCutting] = Value.Bool(CurrentlyWaitingBeforeCutting),
-                [ValueKeys.StatusLabel] = Value.String(StatusLabel),
-                [ValueKeys.Errors] = Value.Array(Errors.Select(e => e.ToPropertyValue()).ToList()),
-            };
-            if (Pose != null && !Pose.IsEmpty)
-            {
-                dictionary[ValueKeys.Pose] = Pose.ToPropertyValue();
-            }
-            return Value.Dictionary(dictionary.ToDictionary(k => k.Key, v => v.Value));
+                [ValueKeys.Order] = Value.String(JsonConvert.SerializeObject(Order)),
+                [ValueKeys.Progress] = Value.String(JsonConvert.SerializeObject(Progress)),
+            });
         }
 
+        // Null for anything not in this format (data from before the 2026-11-19 rewrite is not read).
         public static ManagedWaypoint FromPropertyValue(Value value)
         {
-            if (value.IsNull || value.Type != KeyValue.Runtime.ValueType.Dictionary) return null;
-
+            if (value.IsNull || value.Type != KeyValue.Runtime.ValueType.Dictionary)
+            {
+                return null;
+            }
             var dict = value.DictionaryValue;
-
-            ManagedWaypoint waypoint = new ManagedWaypoint();
-
-            waypoint.Id = dict[ValueKeys.Id].StringValue;
-            waypoint.Name = dict[ValueKeys.Name].StringValue;
-            waypoint.Version = dict[ValueKeys.Version].IntValue;
-            waypoint.LocomotiveId = dict[ValueKeys.LocomotiveId].StringValue;
-            waypoint.LocationString = dict[ValueKeys.LocationString].StringValue;
-            waypoint.CoupleToCarId = dict[ValueKeys.CoupleToCarId].StringValue;
-            waypoint.ConnectAirOnCouple = dict[ValueKeys.ConnectAirOnCouple].BoolValue;
-            waypoint.ReleaseHandbrakesOnCouple = dict[ValueKeys.ReleaseHandbrakesOnCouple].BoolValue;
-            waypoint.HasResolvedBrakeSystemOnCouple = dict[ValueKeys.HasResolvedBrakeSystemOnCouple].BoolValue;
-            waypoint.ApplyHandbrakesOnUncouple = dict[ValueKeys.ApplyHandbrakesOnUncouple].BoolValue;
-            waypoint.BleedAirOnUncouple = dict[ValueKeys.BleedAirOnUncouple].BoolValue;
-            waypoint.NumberOfCarsToCut = dict[ValueKeys.NumberOfCarsToCut].IntValue;
-            waypoint.CountUncoupledFromNearestToWaypoint = dict[ValueKeys.CountUncoupledFromNearestToWaypoint].BoolValue;
-            waypoint._postCouplingCutMode = (PostCoupleCutType)dict[ValueKeys.PostCouplingCutMode].IntValue;
-            waypoint.TakeUncoupledCarsAsActiveCut = dict[ValueKeys.TakeUncoupledCarsAsActiveCut].BoolValue;
-            waypoint.SerializableRefuelPoint = SerializableVector3.FromPropertyValue(dict[ValueKeys.SerializableRefuelPoint]);
-            waypoint.RefuelIndustryId = dict[ValueKeys.RefuelIndustryId].StringValue;
-            waypoint.RefuelLoadId = dict[ValueKeys.RefuelLoadName].StringValue;
-            waypoint.RefuelMaxCapacity = dict[ValueKeys.RefuelMaxCapacity].FloatValue;
-            waypoint.WillRefuel = dict[ValueKeys.WillRefuel].BoolValue;
-            waypoint.CurrentlyRefueling = dict[ValueKeys.CurrentlyRefueling].BoolValue;
-            waypoint.RefuelingSpeedLimit = dict[ValueKeys.RefuelingSpeedLimit].IntValue;
-            waypoint.MaxSpeedAfterRefueling = dict[ValueKeys.MaxSpeedAfterRefueling].IntValue;
-            waypoint.RefuelLoaderAnimated = dict[ValueKeys.RefuelLoaderAnimated].BoolValue;
-            waypoint.TimetableSymbol = dict[ValueKeys.TimetableSymbol].StringValue;
-            waypoint.WillWait = dict[ValueKeys.WillWait].BoolValue;
-            waypoint.CurrentlyWaiting = dict[ValueKeys.CurrentlyWaiting].BoolValue;
-            waypoint.WaitingWasSkipped = dict[ValueKeys.WaitingWasSkipped].BoolValue;
-            waypoint.WaitMode = (WaitType)dict[ValueKeys.WaitMode].IntValue;
-            waypoint.WaitUntilTimeString = dict[ValueKeys.WaitUntilTimeString].StringValue;
-            waypoint.WaitUntilDay = (TodayOrTomorrow)dict[ValueKeys.WaitUntilDay].IntValue;
-            waypoint.WaitForDurationMinutes = dict[ValueKeys.WaitForDurationMinutes].IntValue;
-            waypoint.WaitUntilGameTotalSeconds = ParseStoredDouble(dict[ValueKeys.WaitUntilGameTotalSeconds].StringValue);
-            waypoint.StopAtWaypoint = dict[ValueKeys.StopAtWaypoint].BoolValue;
-            waypoint.WillLimitPassingSpeed = dict[ValueKeys.WillLimitPassingSpeed].BoolValue;
-            waypoint.WaypointTargetSpeed = dict[ValueKeys.WaypointTargetSpeed].IntValue;
-            waypoint.WillChangeMaxSpeed = dict[ValueKeys.WillChangeMaxSpeed].BoolValue;
-            waypoint.MaxSpeedForChange = dict[ValueKeys.MaxSpeedForChange].IntValue;
-            waypoint._couplingSearchMode = (CoupleSearchMode)dict[ValueKeys.CouplingSearchMode].IntValue;
-            waypoint._uncouplingMode = (UncoupleMode)dict[ValueKeys.UncouplingMode].IntValue;
-            waypoint.CurrentlyCouplingNearby = dict[ValueKeys.CurrentlyCouplingNearby].BoolValue;
-            waypoint.CurrentlyCouplingSpecificCar = dict[ValueKeys.CurrentlyCouplingSpecificCar].BoolValue;
-            waypoint.OnlySeekNearbyOnTrackAhead = dict[ValueKeys.OnlySeekNearbyOnTrackAhead].BoolValue;
-            waypoint.CouplingSearchText = dict[ValueKeys.CouplingSearchText].StringValue;
-            waypoint.CouplingSearchResultCarId = dict[ValueKeys.CouplingSearchResultCarId].StringValue;
-            waypoint.UncouplingSearchText = dict[ValueKeys.UncouplingSearchText].StringValue;
-            waypoint.UncouplingSearchResultCarId = dict[ValueKeys.UncouplingSearchResultCarId].StringValue;
-            waypoint.DestinationSearchText = dict[ValueKeys.DestinationSearchText].StringValue;
-            waypoint.UncoupleDestinationId = dict[ValueKeys.UncoupleDestinationId].StringValue;
-            waypoint.ExcludeMatchingCarsFromCut = dict[ValueKeys.ExcludeMatchingCarsFromCut].BoolValue;
-            waypoint.CurrentlyWaitingBeforeCutting = dict[ValueKeys.CurrentlyWaitingBeforeCutting].BoolValue;
-            waypoint.StatusLabel = dict[ValueKeys.StatusLabel].StringValue;
-            waypoint.Errors = [.. dict[ValueKeys.Errors].ArrayValue.ToList().Select(e => WaypointError.FromPropertyValue(e))];
-            waypoint.Pose = dict.TryGetValue(ValueKeys.Pose, out Value pose) ? QueuedPose.FromPropertyValue(pose) : null;
-
-            if (dict.ContainsKey(ValueKeys.EnableMultipleRefueling))
+            if (!dict.TryGetValue(ValueKeys.Version, out Value version) || version.IntValue != StorageVersion
+                || !dict.TryGetValue(ValueKeys.Order, out Value order))
             {
-                waypoint.EnableMultipleRefueling = dict[ValueKeys.EnableMultipleRefueling].BoolValue;
+                return null;
             }
-
-            if (dict.ContainsKey(ValueKeys.RefuelLocoIdsQueue))
+            var waypoint = new ManagedWaypoint
             {
-                waypoint.RefuelLocoIdsQueue = [.. dict[ValueKeys.RefuelLocoIdsQueue].ArrayValue.ToList().Select(v => v.StringValue)];
-            }
-
-            if (dict.ContainsKey(ValueKeys.BottleAirOnUncouple))
+                Id = dict[ValueKeys.Id].StringValue,
+                LocomotiveId = dict.TryGetValue(ValueKeys.LocomotiveId, out Value loco) && !loco.IsNull ? loco.StringValue : null,
+                Order = JsonConvert.DeserializeObject<WaypointOrder>(order.StringValue) ?? new WaypointOrder(),
+            };
+            if (dict.TryGetValue(ValueKeys.Progress, out Value progress) && !progress.IsNull)
             {
-                waypoint.BottleAirOnUncouple = dict[ValueKeys.BottleAirOnUncouple].BoolValue;
+                waypoint.Progress = JsonConvert.DeserializeObject<WaypointProgress>(progress.StringValue) ?? new WaypointProgress();
             }
-            else
-            {
-                waypoint.BottleAirOnUncouple = !ModLocator.Settings.DoNotBottleAir;
-            }
-
-            if (dict.ContainsKey(ValueKeys.RefuelLoaderRegisteredId))
-            {
-                waypoint.RefuelLoaderRegisteredId = dict[ValueKeys.RefuelLoaderRegisteredId].StringValue;
-            }
-
-            if (dict.ContainsKey(ValueKeys.RepositioningToRetryRefuel))
-            {
-                waypoint.RepositioningToRetryRefuel = dict[ValueKeys.RepositioningToRetryRefuel].BoolValue;
-            }
-
-            if (dict.ContainsKey(ValueKeys.OpsPositionStatus))
-            {
-                waypoint.MatchOpsPositionStatus = (OpsPositionStatus)dict[ValueKeys.OpsPositionStatus].IntValue;
-            }
-
-            if (dict.ContainsKey(ValueKeys.WaitUntilWaybillStatus))
-            {
-                waypoint.WaitUntilWaybillStatus = (OpsPositionStatus)dict[ValueKeys.WaitUntilWaybillStatus].IntValue;
-            }
-
             return waypoint;
         }
 
         private static class ValueKeys
         {
-            internal static string Id = "id";
-            internal static string Name = "name";
             internal static string Version = "version";
+            internal static string Id = "id";
             internal static string LocomotiveId = "locomotive_id";
-            internal static string LocationString = "location_string";
-            internal static string CoupleToCarId = "couple_to_car_id";
-            internal static string ConnectAirOnCouple = "connect_air_on_couple";
-            internal static string ReleaseHandbrakesOnCouple = "release_handbrakes_on_couple";
-            internal static string HasResolvedBrakeSystemOnCouple = "has_resolved_brake_system_on_couple";
-            internal static string ApplyHandbrakesOnUncouple = "apply_handbrakes_on_uncouple";
-            internal static string BleedAirOnUncouple = "bleed_air_on_uncouple";
-            internal static string BottleAirOnUncouple = "bottle_air_on_uncouple";
-            internal static string NumberOfCarsToCut = "number_of_cars_to_cut";
-            internal static string CountUncoupledFromNearestToWaypoint = "count_uncoupled_from_nearest_to_waypoint";
-            internal static string PostCouplingCutMode = "post_coupling_cut_mode";
-            internal static string TakeUncoupledCarsAsActiveCut = "take_uncoupled_cars_as_active_cut";
-            internal static string SerializableRefuelPoint = "serializable_refuel_point";
-            internal static string RefuelIndustryId = "refuel_industry_id";
-            internal static string RefuelLoadName = "refuel_load_name";
-            internal static string RefuelMaxCapacity = "refuel_max_capacity";
-            internal static string WillRefuel = "will_refuel";
-            internal static string CurrentlyRefueling = "currently_refueling";
-            internal static string RepositioningToRetryRefuel = "repositioning_to_retry_refuel";
-            internal static string RefuelingSpeedLimit = "refueling_speed_limit";
-            internal static string MaxSpeedAfterRefueling = "max_speed_after_refueling";
-            internal static string RefuelLoaderAnimated = "refuel_loader_animated";
-            internal static string RefuelLocoIdsQueue = "refuel_loco_ids_queue";
-            internal static string EnableMultipleRefueling = "enable_multiple_refueling";
-            internal static string RefuelLoaderRegisteredId = "refuel_loader_registered_id";
-            internal static string TimetableSymbol = "timetable_symbol";
-            internal static string WillWait = "will_wait";
-            internal static string CurrentlyWaiting = "currently_waiting";
-            internal static string WaitingWasSkipped = "waiting_was_skipped";
-            // Key for WaitMode needs to use the legacy duration_or_specific time for compatibility
-            internal static string WaitMode = "duration_or_specific_time";
-            internal static string WaitUntilTimeString = "wait_until_time_string";
-            internal static string WaitUntilDay = "wait_until_day";
-            internal static string WaitForDurationMinutes = "wait_for_duration_minutes";
-            internal static string WaitUntilGameTotalSeconds = "wait_until_game_total_seconds";
-            internal static string WaitUntilWaybillStatus = "wait_until_waybill_status";
-            internal static string StopAtWaypoint = "stop_at_waypoint";
-            internal static string WillLimitPassingSpeed = "will_limit_passing_speed";
-            internal static string WaypointTargetSpeed = "waypoint_target_speed";
-            internal static string WillChangeMaxSpeed = "will_change_max_speed";
-            internal static string MaxSpeedForChange = "max_speed_for_change";
-            internal static string CouplingSearchMode = "coupling_search_mode";
-            internal static string UncouplingMode = "uncoupling_mode";
-            internal static string CurrentlyCouplingNearby = "currently_coupling_nearby";
-            internal static string CurrentlyCouplingSpecificCar = "currently_coupling_specific_car";
-            internal static string OnlySeekNearbyOnTrackAhead = "only_seek_nearby_on_track_ahead";
-            internal static string CouplingSearchText = "coupling_search_text";
-            internal static string CouplingSearchResultCarId = "coupling_search_result_car_id";
-            internal static string UncouplingSearchText = "uncoupling_search_text";
-            internal static string UncouplingSearchResultCarId = "uncoupling_search_result_car_id";
-            internal static string DestinationSearchText = "destination_search_text";
-            internal static string UncoupleDestinationId = "uncouple_destination_id";
-            internal static string ExcludeMatchingCarsFromCut = "exclude_matching_cars_from_cut";
-            // Key for OpsPositionStatus should remain as match_waybill_status for compatibility
-            internal static string OpsPositionStatus = "match_waybill_status";
-            internal static string CurrentlyWaitingBeforeCutting = "currently_waiting_before_cutting";
-            internal static string StatusLabel = "status_label";
-            internal static string Errors = "errors";
-            internal static string Pose = "pose";
+            internal static string Order = "order";
+            internal static string Progress = "progress";
         }
     }
 

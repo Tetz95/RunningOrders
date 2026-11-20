@@ -121,7 +121,7 @@ namespace WaypointQueue
                     }
                     else
                     {
-                        wp.CouplingSearchMode = ManagedWaypoint.CoupleSearchMode.None;
+                        wp.CouplingSearchFinished(null);
                         WaypointQueueController.Shared.UpdateWaypoint(wp);
                         ModLocator.Loader.LogError($"{wp.Locomotive.Ident} cannot find a nearby car to couple.");
                     }
@@ -136,7 +136,7 @@ namespace WaypointQueue
                     }
                     else
                     {
-                        wp.CouplingSearchMode = ManagedWaypoint.CoupleSearchMode.None;
+                        wp.CouplingSearchFinished(null);
                     }
                 }
 
@@ -168,7 +168,7 @@ namespace WaypointQueue
                 }
                 else
                 {
-                    wp.CouplingSearchMode = ManagedWaypoint.CoupleSearchMode.None;
+                    wp.CouplingSearchFinished(null);
                     WaypointQueueController.Shared.UpdateWaypoint(wp);
                     ModLocator.Loader.LogError($"{wp.Locomotive.Ident} cannot find a nearby car to couple.");
                 }
@@ -183,7 +183,7 @@ namespace WaypointQueue
                 }
                 else
                 {
-                    wp.CouplingSearchMode = ManagedWaypoint.CoupleSearchMode.None;
+                    wp.CouplingSearchFinished(null);
                 }
             }
 
@@ -499,7 +499,7 @@ namespace WaypointQueue
                 if (!IsAnyCarSpotted(consist))
                 {
                     ModLocator.Loader.Log($"Loco {wp.Locomotive.Ident} done waiting");
-                    wp.ClearWaiting();
+                    wp.FinishWaiting();
                     WaypointQueueController.Shared.UpdateWaypoint(wp);
                     return true;
                 }
@@ -512,7 +512,7 @@ namespace WaypointQueue
             if (TimeWeather.Now.TotalSeconds >= wp.WaitUntilGameTotalSeconds)
             {
                 ModLocator.Loader.Log($"Loco {wp.Locomotive.Ident} done waiting");
-                wp.ClearWaiting();
+                wp.FinishWaiting();
                 WaypointQueueController.Shared.UpdateWaypoint(wp);
                 return true;
             }
@@ -614,9 +614,6 @@ namespace WaypointQueue
             {
                 throw new UncouplingException($"Cannot perform post coupling cut due to unresolvable CoupledToCarId {waypoint.CoupleToCarId}", waypoint);
             }
-
-            // Take active cut not allowed for pickups or dropoffs
-            waypoint.TakeUncoupledCarsAsActiveCut = false;
 
             bool isPickup = waypoint.PostCouplingCutMode == ManagedWaypoint.PostCoupleCutType.Pickup;
 
@@ -769,13 +766,9 @@ namespace WaypointQueue
                 return;
             }
 
-            if (waypoint.TimetableSymbol == RemoveTrainSymbolString)
-            {
-                waypoint.TimetableSymbol = null;
-            }
-
-            StateManager.ApplyLocal(new RequestSetTrainCrewTimetableSymbol(crewId, waypoint.TimetableSymbol));
-            ModLocator.Loader.Log($"[Timetable] {(waypoint.TimetableSymbol ?? "None")} for {waypoint.Locomotive.Ident}");
+            string symbol = waypoint.TimetableSymbol == RemoveTrainSymbolString ? null : waypoint.TimetableSymbol;
+            StateManager.ApplyLocal(new RequestSetTrainCrewTimetableSymbol(crewId, symbol));
+            ModLocator.Loader.Log($"[Timetable] {(symbol ?? "None")} for {waypoint.Locomotive.Ident}");
         }
     }
 }

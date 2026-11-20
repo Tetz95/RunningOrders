@@ -86,7 +86,7 @@ namespace WaypointQueue
             var dict = value.DictionaryValue;
 
             string locoId = dict[ValueKeys.LocomotiveId].StringValue;
-            List<ManagedWaypoint> waypoints = dict[ValueKeys.Waypoints].ArrayValue.ToList().Select(v => ManagedWaypoint.FromPropertyValue(v)).ToList();
+            List<ManagedWaypoint> waypoints = dict[ValueKeys.Waypoints].ArrayValue.ToList().Select(v => ManagedWaypoint.FromPropertyValue(v)).Where(w => w != null).ToList();
             ManagedWaypoint unresolved = ManagedWaypoint.FromPropertyValue(dict[ValueKeys.UnresolvedWaypoint]);
 
             return new LocoWaypointState(locoId, waypoints, unresolved);

@@ -12,7 +12,7 @@ namespace WaypointQueue.State
     {
         private readonly KeyValueObject _keyValueObject;
 
-        public readonly string ObjectId = "_waypointQueueMod.routes";
+        public readonly string ObjectId = "_tetzWaypointQueue.routes";  // since the 2026-11-19 rewrite (clean start)
 
         // Each key should be a route id
 
@@ -78,23 +78,6 @@ namespace WaypointQueue.State
                 var route = RouteDefinition.FromPropertyValue(value);
                 action(route);
             }, callInitial);
-        }
-
-        public void MigrateRoutesFromJsonStringsToPropertyValues()
-        {
-            Dictionary<string, RouteDefinition> pairs = [];
-
-            foreach (var routeId in _keyValueObject.Keys)
-            {
-                string json = _keyValueObject[routeId];
-                RouteDefinition route = JsonConvert.DeserializeObject<RouteDefinition>(json);
-                pairs.Add(routeId, route);
-            }
-
-            foreach (var item in pairs)
-            {
-                _keyValueObject[item.Key] = item.Value.ToPropertyValue();
-            }
         }
 
         public void ResetData()

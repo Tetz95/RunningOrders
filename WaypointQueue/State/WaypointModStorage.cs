@@ -13,7 +13,7 @@ namespace WaypointQueue.State
     {
         private readonly KeyValueObject _keyValueObject;
 
-        public readonly string ObjectId = "_waypointQueueMod";
+        public readonly string ObjectId = "_tetzWaypointQueue";  // since the 2026-11-19 rewrite (clean start)
 
         public readonly string KeyVersion = "version";
 
@@ -114,21 +114,6 @@ namespace WaypointQueue.State
             {
                 action(RouteAssignments);
             }, callInitial);
-        }
-
-        public void MigrateModStorageFromJsonStringsToPropertyValues()
-        {
-            string bleedAirCarsJson = _keyValueObject[KeyDelayedBleedAirCutEntries];
-            if (!String.IsNullOrEmpty(bleedAirCarsJson))
-            {
-                DelayedBleedAirCutEntries = JsonConvert.DeserializeObject<List<DelayedBleedAirCutEntry>>(bleedAirCarsJson);
-            }
-
-            string assignmentsJson = _keyValueObject[KeyRouteAssignments];
-            if (!String.IsNullOrEmpty(assignmentsJson))
-            {
-                RouteAssignments = JsonConvert.DeserializeObject<Dictionary<string, RouteAssignment>>(assignmentsJson);
-            }
         }
 
         public void ResetData()

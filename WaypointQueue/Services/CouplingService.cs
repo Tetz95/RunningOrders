@@ -160,11 +160,8 @@ namespace WaypointQueue.Services
         public void SendNearbyCoupling(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper, Car car, LogicalEnd end, Location location)
         {
             wp.StatusLabel = $"Moving to couple {car.Ident}";
-            wp.CouplingSearchMode = ManagedWaypoint.CoupleSearchMode.None;
+            wp.CouplingSearchFinished(car);
             wp.CurrentlyCouplingNearby = true;
-            wp.StopAtWaypoint = true;
-            wp.CoupleToCar = car;
-            wp.CoupleToCarId = car.id;
             wp.OverwriteLocation(location);
             ModLocator.Loader.Log($"Sending nearby coupling waypoint for {wp.Locomotive.Ident} to {location} with coupling to {car.Ident}");
             autoEngineerService.SendToCouple(ordersHelper, location, car, end);
@@ -204,11 +201,8 @@ namespace WaypointQueue.Services
             if (bestLocation.IsValid)
             {
                 waypoint.StatusLabel = $"Moving to couple {targetCar.Ident}";
-                waypoint.CouplingSearchMode = ManagedWaypoint.CoupleSearchMode.None;
+                waypoint.CouplingSearchFinished(targetCar);
                 waypoint.CurrentlyCouplingSpecificCar = true;
-                waypoint.StopAtWaypoint = true;
-                waypoint.CoupleToCar = targetCar;
-                waypoint.CoupleToCarId = targetCar.id;
                 waypoint.OverwriteLocation(bestLocation);
                 WaypointQueueController.Shared.UpdateWaypoint(waypoint);
                 ModLocator.Loader.Log($"Sending target coupling waypoint for {waypoint.Locomotive.Ident} to {bestLocation} with coupling to {targetCar.Ident}");

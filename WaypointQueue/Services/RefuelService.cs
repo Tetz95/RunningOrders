@@ -108,7 +108,7 @@ namespace WaypointQueue.Services
             ModLocator.Loader.Log($"Sending refueling waypoint for {waypoint.Locomotive.Ident} to {locationToMove} to refuel {locoForRefuel.Ident}");
             waypoint.StatusLabel = $"Moving to refuel {waypoint.RefuelLoadId}";
             waypoint.OverwriteLocation(locationToMove);
-            waypoint.StopAtWaypoint = true;
+            waypoint.Progress.MustStop = true;
             WaypointQueueController.Shared.UpdateWaypoint(waypoint);
             autoEngineerService.SendToWaypoint(ordersHelper, locationToMove);
         }
@@ -502,8 +502,7 @@ namespace WaypointQueue.Services
         public void CleanupAfterRefuel(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper)
         {
             ModLocator.Loader.Log($"Done refueling {wp.Locomotive.Ident}");
-            wp.WillRefuel = false;
-            wp.CurrentlyRefueling = false;
+            wp.RefuelFinished();
             SetCarLoaderSequencerWantsLoading(wp, false);
             WaypointQueueController.Shared.UpdateWaypoint(wp);
 
@@ -592,7 +591,7 @@ namespace WaypointQueue.Services
             ModLocator.Loader.Log($"Sending retry refueling waypoint for {waypoint.Locomotive.Ident} to {locationToMove} to refuel {currentRefuelLoco.Ident}");
             waypoint.StatusLabel = $"Moving to refuel {waypoint.RefuelLoadId}";
             waypoint.OverwriteLocation(locationToMove);
-            waypoint.StopAtWaypoint = true;
+            waypoint.Progress.MustStop = true;
             autoEngineerService.SendToWaypoint(ordersHelper, locationToMove);
         }
     }

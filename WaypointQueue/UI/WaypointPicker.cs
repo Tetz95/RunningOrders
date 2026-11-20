@@ -256,7 +256,7 @@ namespace WaypointQueue.UI
                 _waypoint.ClearCoupling();
             }
 
-            _waypoint.OverwriteLocation(newLocation);
+            _waypoint.SetMark(newLocation);
             _waypoint.CoupleToCarId = newCoupleToCarId;
             _waypoint.Pose = _pickedPose;
 
