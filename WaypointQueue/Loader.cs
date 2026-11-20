@@ -145,6 +145,11 @@ namespace WaypointQueue
                 ServiceProvider.GetService<IOpsControllerWrapper>()
                 ));
 
+            ServiceProvider.AddSingleton<CoupleNearestOnApproach>(new CoupleNearestOnApproach(
+                ServiceProvider.GetService<CouplingService>(),
+                ServiceProvider.GetService<ICarService>()
+                ));
+
             ServiceProvider.AddSingleton<WaypointResolver>(new WaypointResolver(
                 ServiceProvider.GetService<UncouplingService>(),
                 ServiceProvider.GetService<RefuelService>(),

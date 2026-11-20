@@ -1,6 +1,4 @@
 ﻿using Game;
-using HarmonyLib;
-using System.Reflection;
 using Game.Messages;
 using Game.Notices;
 using Game.State;
@@ -616,214 +614,7 @@ namespace WaypointQueue
         }
 
 
-        // Send past waypoint without stopping: once the train is this close, it is sent on to the point that clears the
-        // waypoint. Ordered only on arrival, the game's own stop at the waypoint and a stop within one train length
-        // braked the train almost to a stand short of the waypoint before it crept on to the clear point.
-        internal const float ClearBeyondLeadDistance = 400f;
-
-        private static readonly bool NativeSendPast = true;
-
-        internal bool TryOrderClearBeyondEarly(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper)
-        {
-            // 2026.1 sends the train past with a pose when the waypoint is sent (WaypointQueueController).
-            if (NativeSendPast)
-            {
-                return false;
-            }
-            if (wp.StopAtWaypoint || !wp.MoveTrainPastWaypoint || wp.HasAnyCouplingOrders || wp.WaitingWasSkipped)
-            {
-                return false;
-            }
-            carService.GetTrainEndLocations(wp.Locomotive, wp.Location, out float closestDistance, out _, out _, out _, out _);
-            if (closestDistance > ClearBeyondLeadDistance)
-            {
-                return false;
-            }
-            // Only on the last leg: with a turn-back still ahead (a train reversing out before it heads for the
-            // waypoint) the train's far end can be on the wrong side, and "past" came out the wrong way.
-            if (!TryGetLastLegApproach(wp, out Vector3 approachFrom))
-            {
-                return false;
-            }
-            // The point past the waypoint is reached by the auto engineer's own best route, which need not run through the
-            // waypoint: past a yard track's far end it can lie on the main, and the train then stayed on the main and never
-            // took the yard track. Ordered early only when that route still runs over the waypoint's track; otherwise the
-            // train runs to the waypoint itself and is sent past on arrival.
-            Location clearPoint;
-            try
-            {
-                clearPoint = ClearPoint(wp, approachFrom);
-            }
-            catch (Exception)
-            {
-                return false;                                      // doesn't fit past: reported on arrival as before
-            }
-            if (!RouteRunsOverWaypoint(wp, clearPoint))
-            {
-                ModLocator.Loader.LogDebug($"{wp.Locomotive.Ident}: the best route past the waypoint doesn't run over it; sending past on arrival");
-                return false;
-            }
-            ModLocator.Loader.Log($"{wp.Locomotive.Ident} is on its last approach to the waypoint ({closestDistance:F0} m); sending it past now");
-            try
-            {
-                return OrderClearBeyondWaypoint(wp, ordersHelper, approachFrom);
-            }
-            catch (WaypointProcessingException e)
-            {
-                HandleProcessingError("Move past waypoint", e, wp);
-                return false;
-            }
-        }
-
-        // Couple to nearest without stopping at the waypoint: the car was searched for only on arrival, and 2026.1's
-        // engineer brakes to a stand at the end of its route (the waypoint) before the coupling order went out. Searched
-        // as the train runs in on its last leg (no turn-back left), ahead of the mark facing away from the approach, the
-        // coupling order replaces the waypoint and the train runs on to the car. Nothing found, or the best route to the
-        // car not over the waypoint (a car the train would have to back up for): left to arrival, as before.
-        private const float CoupleNearestRetrySeconds = 3f;
-        private readonly Dictionary<string, float> _coupleNearestEarlyTried = [];
-
-        internal bool TryCoupleNearestEarly(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper)
-        {
-            if (wp.StopAtWaypoint || !wp.WillSeekNearestCoupling || wp.CurrentlyCouplingNearby || wp.WaitingWasSkipped)
-            {
-                return false;
-            }
-            if (_coupleNearestEarlyTried.TryGetValue(wp.Id, out float tried) && Time.time - tried < CoupleNearestRetrySeconds)
-            {
-                return false;
-            }
-            if (_coupleNearestEarlyTried.Count > 200)
-            {
-                _coupleNearestEarlyTried.Clear();
-            }
-            _coupleNearestEarlyTried[wp.Id] = Time.time;
-            try
-            {
-                if (!TryGetLastLegApproach(wp, out Vector3 approachFrom))
-                {
-                    return false;
-                }
-                Location ahead = OrientedAwayFrom(wp.Location, approachFrom);
-                if (!couplingService.TryFindNearbyCar(wp, ahead, out Car car, out Car.LogicalEnd end, out Location location, out string failure))
-                {
-                    ModLocator.Loader.LogDebug($"{wp.Locomotive.Ident}: no car to couple found ahead of the waypoint yet ({failure}); searching again on arrival");
-                    return false;
-                }
-                if (!RouteRunsOverWaypoint(wp, location))
-                {
-                    ModLocator.Loader.LogDebug($"{wp.Locomotive.Ident}: the best route to {car.Ident} doesn't run over the waypoint; coupling on arrival");
-                    return false;
-                }
-                ModLocator.Loader.Log($"{wp.Locomotive.Ident} is on its last approach to the waypoint; coupling to the nearest car {car.Ident} without stopping");
-                couplingService.SendNearbyCoupling(wp, ordersHelper, car, end, location);
-                _coupleNearestEarlyTried.Remove(wp.Id);
-                return true;
-            }
-            catch (Exception e)
-            {
-                ModLocator.Loader.LogDebug($"{wp.Locomotive.Ident}: early search for the nearest car failed ({e.Message}); searching on arrival");
-                return false;
-            }
-        }
-
-        private static readonly MethodInfo PlannerRouteStart =AccessTools.Method(typeof(AutoEngineerPlanner), "RouteStartLocation", [typeof(float).MakeByRefType()]);
-
-        private static readonly AccessTools.FieldRef<AutoEngineerPlanner, float> PlannerMaximumLength =
-            AccessTools.FieldRefAccess<AutoEngineerPlanner, float>("_maximumLength");
-
-        // The game's own route search (as the auto engineer will run it) from where the train is now to the point past the
-        // waypoint: does it run over the waypoint's track segment? When in doubt, no (send past on arrival).
-        internal static bool RouteRunsOverWaypoint(ManagedWaypoint wp, Location clearPoint)
-        {
-            try
-            {
-                AutoEngineerPlanner planner = (wp.Locomotive as BaseLocomotive)?.AutoEngineerPlanner;
-                TrackSegment segment = wp.Location.segment;
-                if (planner == null || segment == null || PlannerRouteStart == null)
-                {
-                    return false;
-                }
-                if (clearPoint.segment == segment)
-                {
-                    return true;
-                }
-                object[] args = { 0f };
-                Location start = (Location)PlannerRouteStart.Invoke(planner, args);
-                var steps = new List<Track.Search.RouteSearch.Step>();
-                if (!Track.Search.RouteSearch.FindRoute(Graph.Shared.Current, start, clearPoint, Track.Search.HeuristicCosts.AutoEngineer, steps, out _,
-                        checkForCars: false, PlannerMaximumLength(planner), (float)args[0]))
-                {
-                    return false;
-                }
-                for (int i = 0; i < steps.Count; i++)
-                {
-                    if (steps[i].Location.segment == segment)
-                    {
-                        return true;
-                    }
-                    if (i > 0 && steps[i].Node != null && steps[i - 1].Node != null
-                        && (steps[i].Node == segment.a && steps[i - 1].Node == segment.b || steps[i].Node == segment.b && steps[i - 1].Node == segment.a))
-                    {
-                        return true;
-                    }
-                }
-                return false;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-
-        private static readonly AccessTools.FieldRef<AutoEngineerPlanner, List<Track.Search.RouteSearch.Step>> PlannerRoute =
-            AccessTools.FieldRefAccess<AutoEngineerPlanner, List<Track.Search.RouteSearch.Step>>("_route");
-
-        private static readonly AccessTools.FieldRef<AutoEngineerPlanner, int> PlannerStartStep =
-            AccessTools.FieldRefAccess<AutoEngineerPlanner, int>("_startStepIndex");
-
-        // False while the auto engineer's route to the waypoint still turns back. Otherwise the point the train comes
-        // from on its last approach (the route's last step before the waypoint, or the train's end nearest the
-        // waypoint), which sets which way is past the waypoint.
-        private bool TryGetLastLegApproach(ManagedWaypoint wp, out Vector3 approachFrom)
-        {
-            approachFrom = default;
-            AutoEngineerPlanner planner = (wp.Locomotive as BaseLocomotive)?.AutoEngineerPlanner;
-            List<Track.Search.RouteSearch.Step> route = planner == null ? null : PlannerRoute(planner);
-            if (route == null || route.Count == 0)
-            {
-                return false;
-            }
-            // The route to this waypoint, not the one before it: the game finds a new route a moment after the waypoint
-            // is sent, and until then still holds the old one.
-            Vector3 waypointAt = Graph.Shared.GetPosition(wp.Location);
-            if (Vector3.Distance(route[route.Count - 1].Position, waypointAt) > 2f)
-            {
-                return false;
-            }
-            int start = Math.Max(0, PlannerStartStep(planner));
-            for (int i = start + 1; i < route.Count; i++)
-            {
-                if (route[i].Direction != route[i - 1].Direction)
-                {
-                    return false;
-                }
-            }
-            for (int i = route.Count - 2; i >= start; i--)
-            {
-                Vector3 position = route[i].Position;
-                if (Vector3.Distance(position, waypointAt) > 2f)
-                {
-                    approachFrom = position;
-                    return true;
-                }
-            }
-            (Location closest, _) = carService.GetTrainEndLocations(wp.Locomotive, wp.Location, out _, out _, out _, out _, out _);
-            approachFrom = Graph.Shared.GetPosition(closest);
-            return Vector3.Distance(approachFrom, waypointAt) > 2f;
-        }
-
-        private bool OrderClearBeyondWaypoint(ManagedWaypoint waypoint, AutoEngineerOrdersHelper ordersHelper, Vector3? approachFrom = null)
+        private bool OrderClearBeyondWaypoint(ManagedWaypoint waypoint, AutoEngineerOrdersHelper ordersHelper)
         {
             waypoint.StopAtWaypoint = true;
             waypoint.MoveTrainPastWaypoint = false;
@@ -833,7 +624,7 @@ namespace WaypointQueue
 
             try
             {
-                locationToMove = ClearPoint(waypoint, approachFrom);
+                locationToMove = ClearPoint(waypoint);
             }
             catch (Exception e)
             {
@@ -850,27 +641,15 @@ namespace WaypointQueue
             return true;
         }
 
-        // One train length past the waypoint. Past is away from where the train comes from: its far end on arrival, or
-        // (ordered on the approach) the route's point before the waypoint, so where the train stands on the way in
-        // doesn't matter. Throws when the train doesn't fit past.
-        private Location ClearPoint(ManagedWaypoint waypoint, Vector3? approachFrom)
+        // One train length past the waypoint, away from the train's far end. Throws when the train doesn't fit past.
+        private Location ClearPoint(ManagedWaypoint waypoint)
         {
             (_, Location furthestCarLocation) = carService.GetTrainEndLocations(waypoint.Locomotive, waypoint.Location, out _, out _, out _, out _, out _);
             float totalTrainLength = GetTrainLength(waypoint.Locomotive as BaseLocomotive);
-            Location orientedLocation = approachFrom.HasValue
-                ? OrientedAwayFrom(waypoint.Location, approachFrom.Value)
-                : Graph.Shared.LocationFacingAwayFrom(waypoint.Location, furthestCarLocation);
+            Location orientedLocation = Graph.Shared.LocationFacingAwayFrom(waypoint.Location, furthestCarLocation);
             Location location = Graph.Shared.Current.LocationByMoving(orientedLocation, totalTrainLength, checkSwitchAgainstMovement: false, stopAtEndOfTrack: false);
             location.AssertValid();
             return location;
-        }
-
-        private static Location OrientedAwayFrom(Location location, Vector3 point)
-        {
-            Graph graph = Graph.Shared;
-            Vector3 ahead = graph.GetPosition(graph.LocationByMoving(location, 5f, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true));
-            Vector3 behind = graph.GetPosition(graph.LocationByMoving(location.Flipped(), 5f, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true));
-            return Vector3.Distance(ahead, point) >= Vector3.Distance(behind, point) ? location : location.Flipped();
         }
 
         private float GetTrainLength(BaseLocomotive locomotive)

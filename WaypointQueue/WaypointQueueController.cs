@@ -28,6 +28,7 @@ namespace WaypointQueue
         private Coroutine _coroutine;
 
         private WaypointResolver _waypointResolver;
+        private CoupleNearestOnApproach _coupleNearestOnApproach;
         private RefuelService _refuelService;
         private ICarService _carService;
         private AutoEngineerService _autoEngineerService;
@@ -54,6 +55,7 @@ namespace WaypointQueue
         private void Awake()
         {
             _waypointResolver = ModLocator.ServiceProvider.GetService<WaypointResolver>();
+            _coupleNearestOnApproach = ModLocator.ServiceProvider.GetService<CoupleNearestOnApproach>();
             _refuelService = ModLocator.ServiceProvider.GetService<RefuelService>();
             _carService = ModLocator.ServiceProvider.GetService<ICarService>();
             _autoEngineerService = ModLocator.ServiceProvider.GetService<AutoEngineerService>();
@@ -158,16 +160,9 @@ namespace WaypointQueue
                     }
                 }
 
-                // Send past waypoint without stopping: switch to the clear point while still approaching
-                if (entry.UnresolvedWaypoint != null && _autoEngineerService.HasActiveWaypoint(ordersHelper)
-                    && _waypointResolver.TryOrderClearBeyondEarly(entry.UnresolvedWaypoint, ordersHelper))
-                {
-                    continue;
-                }
-
                 // Couple to nearest without stopping at the waypoint: the coupling order goes out while still approaching
                 if (entry.UnresolvedWaypoint != null && _autoEngineerService.HasActiveWaypoint(ordersHelper)
-                    && _waypointResolver.TryCoupleNearestEarly(entry.UnresolvedWaypoint, ordersHelper))
+                    && _coupleNearestOnApproach.TryCouple(entry.UnresolvedWaypoint, ordersHelper))
                 {
                     continue;
                 }

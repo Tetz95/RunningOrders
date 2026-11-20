@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using Track;
 using UnityEngine;
+using WaypointQueue.Services;
 using WaypointQueue.State;
 
 namespace WaypointQueue
@@ -46,7 +47,7 @@ namespace WaypointQueue
             int index = state.Waypoints.FindIndex(w => w.Id == managed.Id);
             if (index < 0 || index + 1 >= state.Waypoints.Count)
                 return false;
-            bool runsOver = WaypointResolver.RouteRunsOverWaypoint(managed, state.Waypoints[index + 1].Location);
+            bool runsOver = ApproachRoute.RouteRunsOverWaypoint(managed, state.Waypoints[index + 1].Location);
             if (_nextRouteRunsOver.Count > 200)
                 _nextRouteRunsOver.Clear();
             _nextRouteRunsOver[managed.Id] = runsOver;
