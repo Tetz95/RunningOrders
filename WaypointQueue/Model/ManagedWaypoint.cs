@@ -348,9 +348,6 @@ namespace WaypointQueue
         [JsonIgnore]
         public bool HasAnyPostCouplingCutOrders => HasAnyCouplingOrders && PostCouplingCutMode != PostCoupleCutType.None;
 
-        [Obsolete("Use CouplingSearchMode instead")]
-        [JsonProperty]
-        private bool SeekNearbyCoupling { get; set; } = false;
         public bool OnlySeekNearbyOnTrackAhead { get; set; } = true;
 
         public string CouplingSearchText { get; set; } = "";
@@ -408,7 +405,6 @@ namespace WaypointQueue
         public virtual bool ExcludeMatchingCarsFromCut { get; set; }
         public OpsPositionStatus MatchOpsPositionStatus { get; set; } = OpsPositionStatus.Spotted;
 
-        public bool MoveTrainPastWaypoint { get; set; }
         public bool CurrentlyWaitingBeforeCutting { get; set; }
 
         public string StatusLabel { get; set; } = "Inactive";
@@ -434,41 +430,6 @@ namespace WaypointQueue
         public bool IsValidForQueue()
         {
             return IsValidForRoute() && Locomotive != null;
-        }
-
-        internal void HandleMigration()
-        {
-            if (!Version.HasValue)
-            {
-                MigrateFromVersion0To1();
-            }
-        }
-
-        private void MigrateFromVersion0To1()
-        {
-            ModLocator.Loader.LogDebug($"Migrating waypoint {Id} from version 0 to version 1");
-            Version = 1;
-#pragma warning disable 0618
-            // below is the only area where this obsolete field should be used
-            if (SeekNearbyCoupling)
-            {
-                ModLocator.Loader.LogDebug($"Setting waypoint id {Id} CouplingSearchMode to Nearest as migration from SeekNearbyCoupling");
-                CouplingSearchMode = CoupleSearchMode.Nearest;
-                SeekNearbyCoupling = false; // set to false so it doesn't get saved as true in the future
-            }
-#pragma warning restore 0618
-
-            if (HasAnyCouplingOrders && NumberOfCarsToCut == 0 && (PostCouplingCutMode == PostCoupleCutType.Pickup || PostCouplingCutMode == PostCoupleCutType.Dropoff))
-            {
-                ModLocator.Loader.LogDebug($"Setting waypoint id {Id} PostCouplingCutMode to none since there are coupling orders with zero cars to cut for a pickup or dropoff");
-                PostCouplingCutMode = PostCoupleCutType.None;
-            }
-
-            if (!HasAnyCouplingOrders && UncouplingMode == UncoupleMode.None && NumberOfCarsToCut > 0)
-            {
-                ModLocator.Loader.LogDebug($"Setting waypoint id {Id} UncouplingMode to ByCount since there are {NumberOfCarsToCut} cars to cut");
-                UncouplingMode = UncoupleMode.ByCount;
-            }
         }
 
         public bool TryResolveLocomotive(out Car loco)
@@ -764,7 +725,6 @@ namespace WaypointQueue
                    UncoupleDestinationId == other.UncoupleDestinationId &&
                    ExcludeMatchingCarsFromCut == other.ExcludeMatchingCarsFromCut &&
                    MatchOpsPositionStatus == other.MatchOpsPositionStatus &&
-                   MoveTrainPastWaypoint == other.MoveTrainPastWaypoint &&
                    (Pose?.SameAs(other.Pose) ?? other.Pose == null || other.Pose.IsEmpty) &&
                    CurrentlyWaitingBeforeCutting == other.CurrentlyWaitingBeforeCutting &&
                    StatusLabel == other.StatusLabel &&
@@ -839,7 +799,6 @@ namespace WaypointQueue
                 [ValueKeys.UncoupleDestinationId] = Value.String(UncoupleDestinationId),
                 [ValueKeys.OpsPositionStatus] = Value.Int((int)MatchOpsPositionStatus),
                 [ValueKeys.ExcludeMatchingCarsFromCut] = Value.Bool(ExcludeMatchingCarsFromCut),
-                [ValueKeys.MoveTrainPastWaypoint] = Value.Bool(MoveTrainPastWaypoint),
                 [ValueKeys.CurrentlyWaitingBeforeCutting] = Value.Bool(CurrentlyWaitingBeforeCutting),
                 [ValueKeys.StatusLabel] = Value.String(StatusLabel),
                 [ValueKeys.Errors] = Value.Array(Errors.Select(e => e.ToPropertyValue()).ToList()),
@@ -847,17 +806,6 @@ namespace WaypointQueue
             if (Pose != null && !Pose.IsEmpty)
             {
                 dictionary[ValueKeys.Pose] = Pose.ToPropertyValue();
-                // Also in Waypoint Queue 2.1.0's own keys, so a route exported here keeps its pose there
-                dictionary[ValueKeys.ArrivingEnd] = Value.Int(Pose.ArrivingEnd);
-                dictionary[ValueKeys.BodyToward] = Value.Int(Pose.BodyToward);
-                if (Pose.Turns != null && Pose.Turns.Length > 0)
-                {
-                    dictionary[ValueKeys.RequiredTurns] = Value.Array(Pose.Turns.Select(t => Value.String(t)).ToList());
-                }
-                if (Pose.CoupleToCarEnd.HasValue)
-                {
-                    dictionary[ValueKeys.CoupleToCarEnd] = Value.Int(Pose.CoupleToCarEnd.Value);
-                }
             }
             return Value.Dictionary(dictionary.ToDictionary(k => k.Key, v => v.Value));
         }
@@ -920,15 +868,10 @@ namespace WaypointQueue
             waypoint.DestinationSearchText = dict[ValueKeys.DestinationSearchText].StringValue;
             waypoint.UncoupleDestinationId = dict[ValueKeys.UncoupleDestinationId].StringValue;
             waypoint.ExcludeMatchingCarsFromCut = dict[ValueKeys.ExcludeMatchingCarsFromCut].BoolValue;
-            waypoint.MoveTrainPastWaypoint = dict[ValueKeys.MoveTrainPastWaypoint].BoolValue;
             waypoint.CurrentlyWaitingBeforeCutting = dict[ValueKeys.CurrentlyWaitingBeforeCutting].BoolValue;
             waypoint.StatusLabel = dict[ValueKeys.StatusLabel].StringValue;
             waypoint.Errors = [.. dict[ValueKeys.Errors].ArrayValue.ToList().Select(e => WaypointError.FromPropertyValue(e))];
             waypoint.Pose = dict.TryGetValue(ValueKeys.Pose, out Value pose) ? QueuedPose.FromPropertyValue(pose) : null;
-            if (waypoint.Pose == null)
-            {
-                waypoint.Pose = PoseFromUpstreamKeys(dict);
-            }
 
             if (dict.ContainsKey(ValueKeys.EnableMultipleRefueling))
             {
@@ -1033,29 +976,10 @@ namespace WaypointQueue
             internal static string ExcludeMatchingCarsFromCut = "exclude_matching_cars_from_cut";
             // Key for OpsPositionStatus should remain as match_waybill_status for compatibility
             internal static string OpsPositionStatus = "match_waybill_status";
-            internal static string MoveTrainPastWaypoint = "move_train_past_waypoint";
             internal static string CurrentlyWaitingBeforeCutting = "currently_waiting_before_cutting";
             internal static string StatusLabel = "status_label";
             internal static string Errors = "errors";
             internal static string Pose = "pose";
-            // Waypoint Queue 2.1.0 keeps the pose in these (no body length; it sends 0)
-            internal static string CoupleToCarEnd = "couple_to_car_end";
-            internal static string ArrivingEnd = "arriving_end";
-            internal static string BodyToward = "body_toward";
-            internal static string RequiredTurns = "required_turns";
-        }
-
-        // A waypoint saved by Waypoint Queue 2.1.0 (a route file exported there, say): its pose from that version's keys.
-        private static QueuedPose PoseFromUpstreamKeys(IReadOnlyDictionary<string, Value> dict)
-        {
-            var pose = new QueuedPose
-            {
-                ArrivingEnd = dict.TryGetValue(ValueKeys.ArrivingEnd, out Value end) && !end.IsNull ? end.IntValue : 0,
-                BodyToward = dict.TryGetValue(ValueKeys.BodyToward, out Value side) && !side.IsNull ? side.IntValue : 0,
-                CoupleToCarEnd = dict.TryGetValue(ValueKeys.CoupleToCarEnd, out Value cplEnd) && !cplEnd.IsNull ? cplEnd.IntValue : null,
-                Turns = dict.TryGetValue(ValueKeys.RequiredTurns, out Value turns) && !turns.IsNull ? turns.ArrayValue.Select(v => v.StringValue).ToArray() : null,
-            };
-            return pose.IsEmpty ? null : pose;
         }
     }
 

@@ -668,8 +668,7 @@ namespace WaypointQueue
 
             // The unresolved waypoint is the one already sent to the train. Changing a waypoint that hasn't been sent
             // yet (its options set before the auto engineer was put in waypoint mode, say) marked it as sent: the next
-            // tick found no waypoint order, took the train to have arrived, and resolved it where the train stood (a
-            // "send past waypoint" then went the wrong way). Only the sent waypoint's own copy is refreshed.
+            // tick found no waypoint order, took the train to have arrived, and resolved it where the train stood. Only the sent waypoint's own copy is refreshed.
             if (state.UnresolvedWaypoint != null && state.UnresolvedWaypoint.Id == waypoint.Id)
             {
                 state.UnresolvedWaypoint = waypoint;
@@ -783,7 +782,7 @@ namespace WaypointQueue
             // A refuel waypoint whose loader the train already stands over (the second of two refuels, coal then water) is
             // lined up from where the train stands: sent to the waypoint first, the auto engineer ran the whole train out a
             // length and back to arrive on the mark before the slot was lined up.
-            if (waypoint.WillRefuel && !waypoint.CurrentlyRefueling && !waypoint.HasAnyCouplingOrders && !waypoint.MoveTrainPastWaypoint
+            if (waypoint.WillRefuel && !waypoint.CurrentlyRefueling && !waypoint.HasAnyCouplingOrders
                 && _refuelService.LoaderAlongsideTrain(waypoint))
             {
                 ModLocator.Loader.Log($"{state.Locomotive?.Ident}: the {waypoint.RefuelLoadId} loader is already alongside the train; lining up from where it stands");
@@ -792,21 +791,8 @@ namespace WaypointQueue
                 return;
             }
 
-            // A picked pose goes out only with the orientation option on (upstream 2.1.1's experimental setting); the pose
-            // this method makes for sending the train past the waypoint below doesn't depend on it.
+            // A picked pose goes out only with the orientation option on (upstream 2.1.1's experimental setting).
             QueuedPose pose = ModLocator.Settings.EnableWaypointOrientationFeature ? waypoint.Pose : null;
-            // 2026.1 places the train past the waypoint itself (the "train past it" pose), so the move past isn't a
-            // second order after arriving. A pose the player picked already says where the train stands.
-            if (!waypoint.StopAtWaypoint && waypoint.MoveTrainPastWaypoint && !waypoint.HasAnyCouplingOrders)
-            {
-                if (pose == null || !pose.IsPosed)
-                {
-                    pose = QueuedPose.PastTheMark(state.Locomotive, waypoint.Location);
-                    waypoint.StatusLabel = "Sending train past waypoint";
-                }
-                waypoint.StopAtWaypoint = true;
-                waypoint.MoveTrainPastWaypoint = false;
-            }
             // A waypoint on a car goes out as the game's coupling order to the car's nearer end (the train placed against
             // that coupler), as the picker made it: 2026.1's planner doesn't route a plain waypoint that only names the car
             // (it kept rebuilding "not on current route" and never set off). A pose the player picked is sent as picked.

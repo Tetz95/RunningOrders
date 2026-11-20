@@ -109,18 +109,6 @@ namespace WaypointQueue
             // ModLocator.Loader.LogDebug($"Trying to handle unresolved waypoint for {wp.Locomotive.Ident}:\n {wp.ToString()}");
             if (!wp.StopAtWaypoint)
             {
-                if (wp.MoveTrainPastWaypoint)
-                {
-                    if (OrderClearBeyondWaypoint(wp, ordersHelper))
-                    {
-                        return false;
-                    }
-                    else
-                    {
-                        ModLocator.Loader.LogError($"Failed to move {wp.Locomotive.Ident} past the waypoint");
-                    }
-                }
-
                 // TODO: refactor TryHandleUnresolvedWaypoint to
                 // avoid handling orders like this when not stopping at a waypoint
 
@@ -169,18 +157,6 @@ namespace WaypointQueue
                 // We don't want to start waiting until after we resolve the current waypoint orders,
                 // but we also don't want that resolving logic to run again after we are finished waiting
                 return TryEndWaiting(wp);
-            }
-
-            if (wp.MoveTrainPastWaypoint)
-            {
-                if (OrderClearBeyondWaypoint(wp, ordersHelper))
-                {
-                    return false;
-                }
-                else
-                {
-                    ModLocator.Loader.LogError($"Failed to move {wp.Locomotive.Ident} past the waypoint");
-                }
             }
 
             // Try to begin nearby coupling
@@ -333,7 +309,7 @@ namespace WaypointQueue
             }
 
             // Reposition to refuel
-            if (wp.WillRefuel && !wp.CurrentlyRefueling && !wp.HasAnyCouplingOrders && !wp.MoveTrainPastWaypoint)
+            if (wp.WillRefuel && !wp.CurrentlyRefueling && !wp.HasAnyCouplingOrders)
             {
                 refuelService.OrderToRefuel(wp, ordersHelper, out var locosForRefuelList);
                 locosForRefuelList.ForEach(l =>
@@ -613,49 +589,6 @@ namespace WaypointQueue
             return false;
         }
 
-
-        private bool OrderClearBeyondWaypoint(ManagedWaypoint waypoint, AutoEngineerOrdersHelper ordersHelper)
-        {
-            waypoint.StopAtWaypoint = true;
-            waypoint.MoveTrainPastWaypoint = false;
-
-            ModLocator.Loader.Log($"Beginning order to clear {waypoint.Locomotive.Ident} train past the waypoint");
-            Location locationToMove;
-
-            try
-            {
-                locationToMove = ClearPoint(waypoint);
-            }
-            catch (Exception e)
-            {
-                WaypointQueueController.Shared.UpdateWaypoint(waypoint);
-                throw new WaypointProcessingException($"{waypoint.Locomotive.Ident} cannot fit train past the waypoint", waypoint, e);
-            }
-
-            waypoint.StatusLabel = "Sending train past waypoint";
-            waypoint.OverwriteLocation(locationToMove);
-            WaypointQueueController.Shared.UpdateWaypoint(waypoint);
-
-            ModLocator.Loader.Log($"Sending train of {waypoint.Locomotive.Ident} to {locationToMove} past the waypoint");
-            autoEngineerService.SendToWaypoint(ordersHelper, locationToMove);
-            return true;
-        }
-
-        // One train length past the waypoint, away from the train's far end. Throws when the train doesn't fit past.
-        private Location ClearPoint(ManagedWaypoint waypoint)
-        {
-            (_, Location furthestCarLocation) = carService.GetTrainEndLocations(waypoint.Locomotive, waypoint.Location, out _, out _, out _, out _, out _);
-            float totalTrainLength = GetTrainLength(waypoint.Locomotive as BaseLocomotive);
-            Location orientedLocation = Graph.Shared.LocationFacingAwayFrom(waypoint.Location, furthestCarLocation);
-            Location location = Graph.Shared.Current.LocationByMoving(orientedLocation, totalTrainLength, checkSwitchAgainstMovement: false, stopAtEndOfTrack: false);
-            location.AssertValid();
-            return location;
-        }
-
-        private float GetTrainLength(BaseLocomotive locomotive)
-        {
-            return AutoEngineerPlanner.CalculateTotalLength(carService.EnumerateCoupled(locomotive));
-        }
 
         private void ResolveBrakeSystemOnCouple(ManagedWaypoint waypoint)
         {

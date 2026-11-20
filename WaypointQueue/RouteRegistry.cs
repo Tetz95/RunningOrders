@@ -18,7 +18,6 @@ namespace WaypointQueue
                 }
                 try
                 {
-                    wp.HandleMigration();
                     if (!wp.IsValidForRoute())
                     {
                         return false;

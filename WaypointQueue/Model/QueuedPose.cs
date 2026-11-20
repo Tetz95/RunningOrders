@@ -150,40 +150,6 @@ namespace WaypointQueue.Model
             return end + " on the mark" + side + over;
         }
 
-        // Send past waypoint as a pose: the whole train past the mark, whichever end arrives on it. Past is away from
-        // the side the train comes in from: the auto engineer's own route there, from its last point before the mark
-        // (a train that runs round a loop or reverses first comes in from the far side). Without a route, the side
-        // nearer the locomotive, as the game's picker guesses it.
-        public static QueuedPose PastTheMark(BaseLocomotive locomotive, Location mark)
-        {
-            IGraphView graphView = Graph.Shared.Current;
-            Vector3 from = graphView.GetPosition(locomotive.LocationF);
-            // 0.6.3: PosedWaypoint.PlanNaturalArrival no longer hands out the route; plan it the way it does
-            List<Car> coupled = locomotive.EnumerateCoupled().ToList();
-            bool forward = new AutoEngineerPersistence(locomotive.KeyValueObject).Orders.Forward;
-            if (AutoEngineerPlanner.TryPlanRoute(locomotive, coupled, AutoEngineerPlanner.CalculateTotalLength(coupled), forward,
-                    new OrderWaypoint(Graph.LocationToString(mark), null), graphView, out _, out List<RouteSearch.Step> route, out _, out _, out _,
-                    null, 0f, new List<JunctionTurn>()) && route != null)
-            {
-                Vector3 markPosition = graphView.GetPosition(mark);
-                for (int i = route.Count - 1; i >= 0; i--)
-                {
-                    if (Vector3.Distance(route[i].Position, markPosition) >= ApproachPointDistance)
-                    {
-                        from = route[i].Position;
-                        break;
-                    }
-                }
-            }
-            Vector3 sideA = graphView.GetPosition(graphView.LocationByMoving(WaypointPose.IntoBody(mark, TrackSegment.End.A), SideProbeDistance, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true));
-            Vector3 sideB = graphView.GetPosition(graphView.LocationByMoving(WaypointPose.IntoBody(mark, TrackSegment.End.B), SideProbeDistance, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true));
-            TrackSegment.End nearSide = (sideA - from).sqrMagnitude <= (sideB - from).sqrMagnitude ? TrackSegment.End.A : TrackSegment.End.B;
-            return new QueuedPose { BodyToward = (int)WaypointPose.ToBodyToward(nearSide.Flipped()) };
-        }
-
-        // The route's last point at least this far from the mark tells which side the train comes in from.
-        private const float ApproachPointDistance = 5f;
-
         // How far to each side of the mark to look, as the game's picker does.
         private const float SideProbeDistance = 20f;
 

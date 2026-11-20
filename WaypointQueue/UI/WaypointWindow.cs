@@ -424,8 +424,6 @@ namespace WaypointQueue.UI
                 builder.HStack(row =>
                 {
                     BuildStopAtWaypointField(waypoint, row, onWaypointChange, isRouteWindow);
-
-                    BuildSendPastWaypointField(waypoint, row, onWaypointChange);
                 });
 
                 BuildPoseField(waypoint, builder, isRouteWindow);
@@ -511,7 +509,7 @@ namespace WaypointQueue.UI
                     }
                 }
 
-                if (waypoint.CanRefuelNearby && !waypoint.CurrentlyWaiting && waypoint.StopAtWaypoint && !waypoint.HasAnyCouplingOrders && !waypoint.MoveTrainPastWaypoint)
+                if (waypoint.CanRefuelNearby && !waypoint.CurrentlyWaiting && waypoint.StopAtWaypoint && !waypoint.HasAnyCouplingOrders)
                 {
                     BuildRefuelField(waypoint, builder, onWaypointChange);
                 }
@@ -953,18 +951,6 @@ namespace WaypointQueue.UI
             }
             var poseField = builder.AddField("Train stands", builder.AddLabel(description));
             AddLabelOnlyTooltip(poseField, "Train stands", "How the train will stand at the waypoint, chosen with Space while picking it. If cars are picked up or set out before this waypoint, the same position is planned for the train as it is then.\n\nTo change it, adjust the waypoint and pick again; to let the train stand however it arrives, choose Clear train position.");
-        }
-
-        private UIPanelBuilder BuildSendPastWaypointField(ManagedWaypoint waypoint, UIPanelBuilder builder, Action<ManagedWaypoint> onWaypointChange)
-        {
-            var sendPastWaypointField = builder.AddField("Send past waypoint", builder.AddToggle(() => waypoint.MoveTrainPastWaypoint, (bool value) =>
-            {
-                waypoint.MoveTrainPastWaypoint = value;
-                onWaypointChange(waypoint);
-            }));
-
-            AddLabelOnlyTooltip(sendPastWaypointField, "Send past waypoint", "The engineer will attempt to move the train's length past the waypoint so that the end of the train is at the waypoint.");
-            return builder;
         }
 
         private UIPanelBuilder BuildCouplingFieldSection(ManagedWaypoint waypoint, UIPanelBuilder builder, Action<ManagedWaypoint> onWaypointChange)

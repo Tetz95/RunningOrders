@@ -274,7 +274,6 @@ namespace WaypointQueue.State
                 for (int i = 0; i < state.Waypoints.Count; i++)
                 {
                     var waypoint = state.Waypoints[i];
-                    waypoint.HandleMigration();
                     var scopeForError = $"Locomotive {state.Locomotive.Ident} - waypoint {i + 1}";
                     var validationMessages = ValidateWaypoint(waypoint, scopeForError);
 
@@ -290,7 +289,6 @@ namespace WaypointQueue.State
 
                 if (state.UnresolvedWaypoint != null)
                 {
-                    state.UnresolvedWaypoint.HandleMigration();
                     var scopeForError = $"Locomotive {state.Locomotive.Ident} - active waypoint";
                     var validationMessages = ValidateWaypoint(state.UnresolvedWaypoint, scopeForError);
 
@@ -336,7 +334,6 @@ namespace WaypointQueue.State
                 for (int i = 0; i < route.Waypoints.Count; i++)
                 {
                     var waypoint = route.Waypoints[i];
-                    waypoint.HandleMigration();
                     var scopeForError = $"Route \"{route.Name}\" - waypoint {i + 1}";
                     var validationMessages = ValidateWaypoint(waypoint, scopeForError);
 
