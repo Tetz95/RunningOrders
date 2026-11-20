@@ -707,9 +707,13 @@ namespace WaypointQueue.State
             }
         }
 
-        public void SaveRoute(RouteDefinition routeDefinition)
+        // touch: false for a change that isn't an edit of the route (its place in the list).
+        public void SaveRoute(RouteDefinition routeDefinition, bool touch = true)
         {
-            routeDefinition.UpdatedAt = DateTime.Now;
+            if (touch)
+            {
+                routeDefinition.UpdatedAt = DateTime.Now;
+            }
             var propValue = PropertyValueConverter.RuntimeToSnapshot(routeDefinition.ToPropertyValue());
             StateManager.ApplyLocal(new PropertyChange(_routeStorage.ObjectId, routeDefinition.Id, propValue));
         }

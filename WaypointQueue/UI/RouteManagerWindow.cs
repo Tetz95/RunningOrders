@@ -38,7 +38,7 @@ namespace WaypointQueue.UI
         private UIPanelBuilder _scrollViewBuilder;
 
         private string _searchFilter = string.Empty;
-        private SortByField _sortByField = SortByField.Section;
+        private SortByField _sortByField = SortByField.Custom;
         private SortByDirection _sortByDirection = SortByDirection.Ascending;
 
         private enum SortByField
@@ -46,7 +46,8 @@ namespace WaypointQueue.UI
             Name,
             Section,
             CreatedAt,
-            UpdatedAt
+            UpdatedAt,
+            Custom // by section, then the order set with the arrows
         }
 
         private enum SortByDirection
@@ -206,7 +207,7 @@ namespace WaypointQueue.UI
 
             if (!string.IsNullOrWhiteSpace(_searchFilter))
             {
-                filteredRoutes = [.. filteredRoutes.Where(r => r.Name.Contains(_searchFilter))];
+                filteredRoutes = [.. filteredRoutes.Where(r => r.Name.IndexOf(_searchFilter, StringComparison.OrdinalIgnoreCase) >= 0)];
             }
 
             var items = filteredRoutes
@@ -243,6 +244,17 @@ namespace WaypointQueue.UI
                         return bySection != 0 ? bySection : y.Value.Name.CompareTo(x.Value.Name);
                     });
                 }
+            }
+
+            if (_sortByField == SortByField.Custom)
+            {
+                items.Sort((x, y) =>
+                {
+                    int bySection = string.Compare(x.Value.Section, y.Value.Section, StringComparison.OrdinalIgnoreCase);
+                    if (bySection != 0) return bySection;
+                    int byIndex = x.Value.SortIndex.CompareTo(y.Value.SortIndex);
+                    return byIndex != 0 ? byIndex : string.Compare(x.Value.Name, y.Value.Name, StringComparison.OrdinalIgnoreCase);
+                });
             }
 
             if (_sortByField == SortByField.CreatedAt)
@@ -287,22 +299,25 @@ namespace WaypointQueue.UI
                     row.Spacer();
 
                     row.AddLabel("Sort by").VerticalTextAlignment(TMPro.VerticalAlignmentOptions.Middle);
-                    row.AddDropdown(["Name", "Section", "Created at", "Updated at"], (int)_sortByField, (val =>
+                    row.AddDropdown(["Name", "Section", "Created at", "Updated at", "Custom order"], (int)_sortByField, (val =>
                     {
                         _sortByField = (SortByField)val;
                         RebuildWithScrolls();
                     })).Width(140f);
 
-                    List<string> sortDirectionLabels = ["A to Z", "Z to A"];
-                    if (_sortByField == SortByField.CreatedAt || _sortByField == SortByField.UpdatedAt)
+                    if (_sortByField != SortByField.Custom)
                     {
-                        sortDirectionLabels = ["Ascending", "Descending"];
+                        List<string> sortDirectionLabels = ["A to Z", "Z to A"];
+                        if (_sortByField == SortByField.CreatedAt || _sortByField == SortByField.UpdatedAt)
+                        {
+                            sortDirectionLabels = ["Ascending", "Descending"];
+                        }
+                        row.AddDropdown(sortDirectionLabels, (int)_sortByDirection, (val =>
+                        {
+                            _sortByDirection = (SortByDirection)val;
+                            RebuildWithScrolls();
+                        })).Width(140f);
                     }
-                    row.AddDropdown(sortDirectionLabels, (int)_sortByDirection, (val =>
-                    {
-                        _sortByDirection = (SortByDirection)val;
-                        RebuildWithScrolls();
-                    })).Width(140f);
                     List<DropdownMenu.RowData> dropdownOptions = [];
                     dropdownOptions.Add(new DropdownMenu.RowData("Load from disk", "Load routes from a file"));
                     dropdownOptions.Add(new DropdownMenu.RowData("Save to disk", "Save routes to a file"));
@@ -361,6 +376,12 @@ namespace WaypointQueue.UI
                         });
                         row.Spacer();
 
+                        // The route's place in its section (Ctrl or Shift: to the top or bottom), the custom order.
+                        List<RouteDefinition> inSection = RouteRegistry.InSection(route.Section);
+                        int place = inSection.FindIndex(r => r.Id == route.Id);
+                        row.AddButtonCompact("▲", () => MoveRoute(route, -1)).Width(30f).Height(30f).Disable(place <= 0);
+                        row.AddButtonCompact("▼", () => MoveRoute(route, 1)).Width(30f).Height(30f).Disable(place < 0 || place >= inSection.Count - 1);
+
                         List<DropdownMenu.RowData> options = [
                             new("Overwrite from Loco", "Overwrites route with waypoints from current loco"),
                             new("Add from Loco", "Appends current loco waypoints to the end of the route"),
@@ -378,7 +399,7 @@ namespace WaypointQueue.UI
                                     AppendFromSelectedLoco(route);
                                     break;
                                 case 2:
-                                    AssignToSelectedLoco(route, append: true);
+                                    SendToSelectedLoco(route);
                                     break;
                                 case 3:
                                     PromptDeleteModal(items);
@@ -417,7 +438,7 @@ namespace WaypointQueue.UI
                         });
 
                         row.Spacer();
-                        row.AddButton("Copy to Loco", () => AssignToSelectedLoco(route, append: true));
+                        row.AddButton("Copy to Loco", () => SendToSelectedLoco(route));
                     });
 
                     detail.AddHRule();
@@ -533,13 +554,37 @@ namespace WaypointQueue.UI
                  RouteRegistry.InsertWaypointInRoute(waypoint, beforeWaypointId, route.Id);
              },
              cachePanelByWaypointId: CachePanelBuilderByWaypointId,
-             isRouteWindow: true);
+             isRouteWindow: true,
+             onSendToLoco: (ManagedWaypoint waypoint, bool andTheRest) =>
+             {
+                 RouteDefinition current = RouteRegistry.Current(route);
+                 int start = current.Waypoints.FindIndex(w => w.Id == waypoint.Id);
+                 if (start >= 0)
+                 {
+                     SendToSelectedLoco(current, start, andTheRest ? int.MaxValue : 1);
+                 }
+             });
         }
 
-        private void AssignToSelectedLoco(RouteDefinition route, bool append)
+        private void MoveRoute(RouteDefinition route, int direction)
         {
+            _sortByField = SortByField.Custom;
+            RouteRegistry.Move(route, direction, toEnd: GameInput.IsControlDown || GameInput.IsShiftDown);
+            RebuildWithScrolls();
+        }
+
+        // Adds the route's waypoints (all, or count of them from start) to the end of the selected locomotive's queue.
+        private void SendToSelectedLoco(RouteDefinition route, int start = 0, int count = int.MaxValue)
+        {
+            route = RouteRegistry.Current(route);
             var loco = TrainController.Shared.SelectedLocomotive;
-            WaypointQueueController.Shared.AddWaypointsFromRoute(loco, RouteRegistry.Current(route));
+            if (loco == null)
+            {
+                Toast.Present("Select a locomotive to send the waypoints to.");
+                return;
+            }
+            int added = WaypointQueueController.Shared.AddWaypointsFromRoute(loco, route, start, count);
+            Toast.Present(added == 1 ? $"Added 1 waypoint to {loco.Ident}'s queue." : $"Added {added} waypoints to {loco.Ident}'s queue.");
         }
 
         private void SetFromSelectedLoco(RouteDefinition route)

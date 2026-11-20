@@ -394,7 +394,8 @@ namespace WaypointQueue.UI
             Action<ManagedWaypoint, int> onWaypointReorder,
             Action<ManagedWaypoint, string> onWaypointInsert,
             Action<string, UIPanelBuilder> cachePanelByWaypointId,
-            bool isRouteWindow)
+            bool isRouteWindow,
+            Action<ManagedWaypoint, bool> onSendToLoco = null)
         {
             parentBuilder.VStack(builder =>
             {
@@ -406,7 +407,7 @@ namespace WaypointQueue.UI
                 builder.Spacer(16f);
                 builder.HStack(delegate (UIPanelBuilder builder)
                 {
-                    BuildWaypointItemHeader(waypoint, index, totalWaypoints, onWaypointChange, onWaypointDelete, onWaypointReorder, onWaypointInsert, builder, isRouteWindow);
+                    BuildWaypointItemHeader(waypoint, index, totalWaypoints, onWaypointChange, onWaypointDelete, onWaypointReorder, onWaypointInsert, builder, isRouteWindow, onSendToLoco);
                 });
 
                 if (index == 0 && !isRouteWindow)
@@ -614,7 +615,7 @@ namespace WaypointQueue.UI
             }));
         }
 
-        private void BuildWaypointItemHeader(ManagedWaypoint waypoint, int index, int totalWaypoints, Action<ManagedWaypoint> onWaypointChange, Action<ManagedWaypoint> onWaypointDelete, Action<ManagedWaypoint, int> onWaypointReorder, Action<ManagedWaypoint, string> onWaypointInsert, UIPanelBuilder builder, bool isRouteWindow)
+        private void BuildWaypointItemHeader(ManagedWaypoint waypoint, int index, int totalWaypoints, Action<ManagedWaypoint> onWaypointChange, Action<ManagedWaypoint> onWaypointDelete, Action<ManagedWaypoint, int> onWaypointReorder, Action<ManagedWaypoint, string> onWaypointInsert, UIPanelBuilder builder, bool isRouteWindow, Action<ManagedWaypoint, bool> onSendToLoco)
         {
             string waypointName = string.IsNullOrEmpty(waypoint.Name) ? string.Empty : $" - {waypoint.Name}";
             builder.AddLabel($"Waypoint {index + 1}{waypointName}");
@@ -671,6 +672,18 @@ namespace WaypointQueue.UI
             var removeWaitRow = new DropdownMenu.RowData("Remove wait", "");
             var deleteWaypointRow = new DropdownMenu.RowData("Delete", "");
             var clearPoseRow = new DropdownMenu.RowData("Clear train position", "Lets the train stand however it arrives");
+            // Routes: this waypoint, or it and the ones after it, to the end of the selected locomotive's queue.
+            var sendToLocoRow = new DropdownMenu.RowData("Send to loco", "Adds this waypoint to the selected locomotive's queue");
+            var sendFromHereRow = new DropdownMenu.RowData("Send to loco from here", "Adds this waypoint and the ones after it to the selected locomotive's queue");
+
+            if (onSendToLoco != null)
+            {
+                options.Add(sendToLocoRow);
+                if (index < totalWaypoints - 1)
+                {
+                    options.Add(sendFromHereRow);
+                }
+            }
 
             // Ordering
             options.Add(jumpToWaypointRow);
@@ -701,6 +714,16 @@ namespace WaypointQueue.UI
             // Handling
             builder.AddOptionsDropdown(options, (int value) =>
             {
+                if (options.Contains(sendToLocoRow) && value == options.IndexOf(sendToLocoRow))
+                {
+                    onSendToLoco(waypoint, false);
+                }
+
+                if (options.Contains(sendFromHereRow) && value == options.IndexOf(sendFromHereRow))
+                {
+                    onSendToLoco(waypoint, true);
+                }
+
                 if (value == options.IndexOf(jumpToWaypointRow))
                 {
                     JumpCameraToWaypoint(waypoint);

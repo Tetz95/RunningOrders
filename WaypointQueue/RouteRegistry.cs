@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using WaypointQueue.State;
 
 namespace WaypointQueue
@@ -51,8 +52,44 @@ namespace WaypointQueue
         public static RouteDefinition CreateNewRoute()
         {
             var route = new RouteDefinition { Name = $"Route {Routes.Count + 1}" };
+            route.SortIndex = NextSortIndex(route.Section);
             ModStateManager.Shared.SaveRoute(route);
             return route;
+        }
+
+        // A section's routes in their custom order.
+        public static List<RouteDefinition> InSection(string section)
+        {
+            return [.. Routes.Values.Where(r => r.Section == section).OrderBy(r => r.SortIndex).ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)];
+        }
+
+        private static int NextSortIndex(string section)
+        {
+            var routes = InSection(section);
+            return routes.Count == 0 ? 0 : routes.Max(r => r.SortIndex) + 1;
+        }
+
+        // Moves a route up (-1) or down (+1) in its section; toEnd moves it to the top or bottom. The section is numbered
+        // afresh (routes from older files all have index 0).
+        public static void Move(RouteDefinition route, int direction, bool toEnd)
+        {
+            route = Current(route);
+            if (route == null) return;
+            List<RouteDefinition> routes = InSection(route.Section);
+            int from = routes.FindIndex(r => r.Id == route.Id);
+            if (from < 0) return;
+            int to = toEnd ? (direction < 0 ? 0 : routes.Count - 1) : Math.Max(0, Math.Min(routes.Count - 1, from + direction));
+            if (to == from) return;
+            routes.RemoveAt(from);
+            routes.Insert(to, route);
+            for (int i = 0; i < routes.Count; i++)
+            {
+                if (routes[i].SortIndex != i)
+                {
+                    routes[i].SortIndex = i;
+                    ModStateManager.Shared.SaveRoute(routes[i], touch: false);
+                }
+            }
         }
 
         public static void Remove(string routeId)
@@ -79,7 +116,8 @@ namespace WaypointQueue
             newSection = (newSection ?? "").Trim();
             if (newSection.Length == 0 || newSection == route.Section) return;
 
-            route.Section = newSection.Trim();
+            route.SortIndex = NextSortIndex(newSection);
+            route.Section = newSection;
 
             ModStateManager.Shared.SaveRoute(route);
         }

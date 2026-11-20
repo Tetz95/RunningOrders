@@ -509,18 +509,20 @@ namespace WaypointQueue
             RestartCoroutine();
         }
 
-        public void AddWaypointsFromRoute(BaseLocomotive loco, RouteDefinition route)
+        // The route's waypoints (all, or count of them from start) copied to the end of the locomotive's queue; returns how
+        // many were added.
+        public int AddWaypointsFromRoute(BaseLocomotive loco, RouteDefinition route, int start = 0, int count = int.MaxValue)
         {
-            if (loco == null || route == null) return;
+            if (loco == null || route == null) return 0;
 
-            if (route.Waypoints == null || route.Waypoints.Count == 0) return;
+            if (route.Waypoints == null || route.Waypoints.Count == 0) return 0;
 
             ModLocator.Loader.LogDebug($"Adding waypoints from {route.Name} to {loco.Ident} queue");
 
             var state = ModStateManager.Shared.GetLocoWaypointState(loco.id);
 
             int validWaypointsAdded = 0;
-            foreach (var rw in route.Waypoints)
+            foreach (var rw in route.Waypoints.Skip(start).Take(count))
             {
                 if (rw.TryCopyForRoute(out ManagedWaypoint copy, loco: loco))
                 {
@@ -536,6 +538,7 @@ namespace WaypointQueue
             ModStateManager.Shared.SaveLocoWaypointState(loco.id, state);
             ModLocator.Loader.Log($"Added {validWaypointsAdded} waypoints for {loco.Ident} from route {route.Name}");
             RestartCoroutine();
+            return validWaypointsAdded;
         }
 
         private void HandleLoopingRoutes()
