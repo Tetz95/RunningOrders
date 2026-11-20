@@ -94,6 +94,13 @@ namespace WaypointQueue
             ByOpsPositionStatus
         }
 
+        public enum FireStandMode
+        {
+            KeepHot,
+            Bank,
+            LetGoOut
+        }
+
         public enum OpsPositionStatus
         {
             Spotted,
@@ -366,6 +373,18 @@ namespace WaypointQueue
         public bool CurrentlyWaiting { get => Progress.CurrentlyWaiting; set => Progress.CurrentlyWaiting = value; }
         public bool WaitingWasSkipped { get => Progress.WaitingWasSkipped; set => Progress.WaitingWasSkipped = value; }
         public double WaitUntilGameTotalSeconds { get => Progress.WaitUntilGameTotalSeconds; set => Progress.WaitUntilGameTotalSeconds = value; }
+
+        // ---------- Fire (Realistic Steam and Fuel Use) ----------
+
+        public FireStandMode FireWhileStanding { get => Order.FireWhileStanding; set => Order.FireWhileStanding = value; }
+        public bool FireHotBeforeLeaving { get => Order.FireHotBeforeLeaving; set => Order.FireHotBeforeLeaving = value; }
+        public bool SteamWaitSkipped { get => Progress.SteamWaitSkipped; set => Progress.SteamWaitSkipped = value; }
+
+        // The fire is to be banked or let go out here (stopping waypoints only).
+        public bool WillTendFire => StopAtWaypoint && FireWhileStanding != FireStandMode.KeepHot;
+
+        // The train is held here until RFU says the engine has steam to start.
+        public bool RaisingSteam => Progress.Step == WaypointStep.FireUp && Progress.FireUpSent && !Progress.SteamWaitSkipped;
 
         public void SetWaitUntilByMinutes(int inputMinutesAfterMidnight, out GameDateTime waitUntilTime)
         {

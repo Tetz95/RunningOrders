@@ -31,6 +31,10 @@ namespace WaypointQueue.Steps
 
         private bool TryEndWaiting(ManagedWaypoint wp)
         {
+            if (wp.WaitMode != ManagedWaypoint.WaitType.CarsNotSpotted)
+            {
+                FireSteps.RelightEarly(wp);
+            }
             bool done = wp.WaitMode == ManagedWaypoint.WaitType.CarsNotSpotted
                 ? !IsAnyCarSpotted(carService.EnumerateCoupled(wp.Locomotive))
                 : TimeWeather.Now.TotalSeconds >= wp.WaitUntilGameTotalSeconds;

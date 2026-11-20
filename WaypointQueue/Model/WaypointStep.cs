@@ -12,7 +12,10 @@ namespace WaypointQueue.Model
         Halt,   // stopping waypoints: the locomotive has come to a stand
         Cut,    // the cut (after coupling: pick up or set out), once the whole train is at rest
         Speed,  // then change speed
-        Wait,   // stopping waypoints: wait for a time, a duration or until no car is spotted
+        FireDown, // stopping waypoints, with Realistic Steam and Fuel Use: bank the fire or let it go out
+        Wait,   // stopping waypoints: wait for a time, a duration or until no car is spotted (a timed wait relights the
+                // fire early enough to be at pressure when it ends)
+        FireUp, // relight the fire (if the wait hasn't), and hold the train until RFU says it can start
         Done,
     }
 }

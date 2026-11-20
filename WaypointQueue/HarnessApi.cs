@@ -71,6 +71,15 @@ namespace WaypointQueue
             return $"#{i} {name} = {property.GetValue(waypoint)}";
         }
 
+        // Realistic Steam and Fuel Use's view of the loco (fire, pressure, can it start), and the first waypoint's step.
+        public static string Fire(string loco)
+        {
+            if (!TryLoco(loco, out BaseLocomotive locomotive, out string error)) return error;
+            List<ManagedWaypoint> waypoints = State(locomotive).Waypoints;
+            string step = waypoints.Count > 0 ? $" | wp0 step={waypoints[0].Progress.Step} status=\"{waypoints[0].StatusLabel}\"" : " | queue empty";
+            return Services.RfuFire.Describe(locomotive) + step;
+        }
+
         public static string Count(string loco) => TryLoco(loco, out BaseLocomotive locomotive, out string error)
             ? State(locomotive).Waypoints.Count.ToString(CultureInfo.InvariantCulture) : error;
 

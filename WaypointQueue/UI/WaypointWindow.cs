@@ -518,6 +518,8 @@ namespace WaypointQueue.UI
 
                 BuildWaitingSection(waypoint, builder, onWaypointChange);
 
+                BuildFireSection(waypoint, builder, onWaypointChange);
+
                 if (!string.IsNullOrEmpty(waypoint.Notes))
                 {
                     builder.AddField("Notes", builder.AddLabel(waypoint.Notes));

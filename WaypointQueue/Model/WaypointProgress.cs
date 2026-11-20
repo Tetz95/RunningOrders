@@ -41,6 +41,13 @@ namespace WaypointQueue.Model
         public bool WaitingWasSkipped { get; set; }
         public double WaitUntilGameTotalSeconds { get; set; }
 
+        // Realistic Steam and Fuel Use: the fire was banked or let go out here; the relight was asked for (game seconds);
+        // the player let the train go before RFU said it had steam.
+        public bool FireDownSent { get; set; }
+        public bool FireUpSent { get; set; }
+        public double FireUpSentAt { get; set; }
+        public bool SteamWaitSkipped { get; set; }
+
         public string StatusLabel { get; set; } = "Inactive";
         public List<WaypointError> Errors { get; set; } = [];
     }

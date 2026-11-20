@@ -57,6 +57,11 @@ namespace WaypointQueue.Model
         public int WaitForDurationMinutes { get; set; }
         public OpsPositionStatus WaitUntilWaybillStatus { get; set; } = OpsPositionStatus.NotSpotted;
 
+        // Realistic Steam and Fuel Use (when installed, steam engines, stopping waypoints): the fire while the train
+        // stands, and whether it is hot again (at pressure) before the train leaves.
+        public FireStandMode FireWhileStanding { get; set; } = FireStandMode.KeepHot;
+        public bool FireHotBeforeLeaving { get; set; } = true;
+
         public bool WillChangeMaxSpeed { get; set; }
         public int MaxSpeedForChange { get; set; }
         public string TimetableSymbol { get; set; }

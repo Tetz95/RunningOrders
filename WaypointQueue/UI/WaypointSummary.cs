@@ -45,6 +45,11 @@ namespace WaypointQueue.UI
             {
                 parts.Add(DescribeWait(wp));
             }
+            if (wp.WillTendFire)
+            {
+                string fire = wp.FireWhileStanding == ManagedWaypoint.FireStandMode.Bank ? "bank fire" : "let fire go out";
+                parts.Add(wp.FireHotBeforeLeaving ? fire + ", hot to leave" : fire);
+            }
 
             return string.Join(" · ", parts);
         }
