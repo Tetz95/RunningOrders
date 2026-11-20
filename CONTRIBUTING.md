@@ -4,10 +4,6 @@
 
 The following is a set of guidelines for contributing to Waypoint Queue.
 
-## Code of Conduct
-
-This project and everyone participating in it is governed by the project [Code of Conduct](https://github.com/Tetz95/WaypointQueue/blob/tetz/CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
-
 ## How Can I Contribute?
 
 ### Reporting Bugs
