@@ -180,7 +180,8 @@ namespace WaypointQueue.UI
 
         private void OpenBugReportOnGitHub()
         {
-            string bugReportIssueLink = "https://github.com/PrinceOfPluto/WaypointQueue/issues";
+            // This fork's own tracker (it no longer follows PrinceOfPluto's).
+            string bugReportIssueLink = "https://github.com/Tetz95/WaypointQueue/issues";
             Application.OpenURL(bugReportIssueLink);
         }
 

@@ -794,8 +794,8 @@ namespace WaypointQueue
                 return;
             }
 
-            // A picked pose goes out only with the orientation option on (upstream 2.1.1's experimental setting).
-            QueuedPose pose = ModLocator.Settings.EnableWaypointOrientationFeature ? waypoint.Pose : null;
+            // The pose picked for the waypoint (how the train stands) goes out with the order.
+            QueuedPose pose = waypoint.Pose;
             // A waypoint on a car goes out as the game's coupling order to the car's nearer end (the train placed against
             // that coupler), as the picker made it: 2026.1's planner doesn't route a plain waypoint that only names the car
             // (it kept rebuilding "not on current route" and never set off). A pose the player picked is sent as picked.

@@ -53,12 +53,6 @@ namespace WaypointQueue.Settings
             AllExceptLocomotives = 6,
         }
 
-        public enum PostCoupleCutModeDefaultOptions
-        {
-            Pickup = 0,
-            Dropoff = 1,
-        }
-
         // Show time info in dropdown for timetable train symbol
         public bool ShowTimeInTrainSymbolDropdown = true;
 
@@ -104,8 +98,6 @@ namespace WaypointQueue.Settings
 
         public UncoupleModeDefaultOptions DefaultUncouplingMode = UncoupleModeDefaultOptions.ByCount;
 
-        public PostCoupleCutModeDefaultOptions DefaultPostCouplingCutMode = PostCoupleCutModeDefaultOptions.Pickup;
-
         public UncoupleModeDefaultOptions DefaultPostCouplingCutUncouplingMode = UncoupleModeDefaultOptions.ByCount;
 
         public int PassingSpeedForKickingCars = 7;
@@ -126,10 +118,6 @@ namespace WaypointQueue.Settings
         // reversing, so the dispatcher can line the switch for the reverse move. Otherwise the train turns back with its
         // rear in the plant and waits there.
         public bool ReverseClearOfInterlockings = true;
-
-        // The pose picked for a waypoint (arriving end, side, turns) goes out with its order. On by default in this fork,
-        // whose picker sets poses; upstream 2.1.1 made it an experimental option, off by default.
-        public bool EnableWaypointOrientationFeature = true;
 
         public bool EnableVerboseLogging = false;
 
@@ -176,18 +164,7 @@ namespace WaypointQueue.Settings
 
             settings.InitializeInputs();
 
-            if (settings.Version == 2)
-            {
-                settings.MigrateSettings2to3();
-            }
-
             return settings;
-        }
-
-        private void MigrateSettings2to3()
-        {
-            Version = 3;
-            EnableWaypointOrientationFeature = true;
         }
 
         public void InitializeInputs()

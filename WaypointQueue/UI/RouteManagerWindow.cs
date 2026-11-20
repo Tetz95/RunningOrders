@@ -1,5 +1,6 @@
 ﻿using Game.Events;
 using Game.State;
+using Model;
 using Network;
 using System;
 using System.Collections.Generic;
@@ -36,6 +37,9 @@ namespace WaypointQueue.UI
 
         internal static readonly Dictionary<string, UIPanelBuilder> panelsByWaypointId = [];
         private UIPanelBuilder _scrollViewBuilder;
+
+        // Route waypoints show compact (header and a one-line summary) unless expanded.
+        private readonly HashSet<string> _expandedWaypointIds = [];
 
         private string _searchFilter = string.Empty;
         private SortByField _sortByField = SortByField.Custom;
@@ -81,6 +85,21 @@ namespace WaypointQueue.UI
             _customWindow.Rebuild();
         }
 
+        // Shows the window on one route, its waypoints all expanded or all compact.
+        public void ShowRoute(string routeId, bool expandAll)
+        {
+            _selectedRouteId.Value = routeId;
+            _expandedWaypointIds.Clear();
+            if (expandAll && RouteRegistry.GetById(routeId) is RouteDefinition route)
+            {
+                foreach (var w in route.Waypoints)
+                {
+                    _expandedWaypointIds.Add(w.Id);
+                }
+            }
+            Show();
+        }
+
         private void CaptureCustomWindow()
         {
             if (_customWindow == null)
@@ -106,6 +125,7 @@ namespace WaypointQueue.UI
             EventBus.Subscribe<WaypointWasAppended>(this, OnWaypointWasAppended);
             EventBus.Subscribe<RouteDidUpdate>(this, OnRouteDidUpdate);
             EventBus.Subscribe<RoutesDidLoadFromDisk>(this, OnRoutesDidLoadFromDisk);
+            EventBus.Subscribe<SelectedCarChanged>(this, OnSelectedCarChanged);
             _routeLoadSaveHelper = new RouteLoadSaveHelper();
 
             if (string.IsNullOrEmpty(_selectedRouteId.Value) && RouteRegistry.Routes.Count > 0)
@@ -153,8 +173,18 @@ namespace WaypointQueue.UI
                 RouteDefinition route = RouteRegistry.GetById(_selectedRouteId.Value);
                 List<ManagedWaypoint> waypointList = route.Waypoints;
                 ManagedWaypoint lastWaypoint = waypointList.Last();
+                _expandedWaypointIds.Add(lastWaypoint.Id);
 
                 BuildRouteWaypointSection(route, lastWaypoint, waypointList.Count - 1, waypointList.Count, _scrollViewBuilder);
+            }
+        }
+
+        // The loop toggle and the train positions follow the selected locomotive.
+        private void OnSelectedCarChanged(SelectedCarChanged _)
+        {
+            if (_customWindow != null && IsVisible)
+            {
+                RebuildWithScrolls();
             }
         }
 
@@ -382,10 +412,10 @@ namespace WaypointQueue.UI
                         row.AddButtonCompact("▲", () => MoveRoute(route, -1)).Width(30f).Height(30f).Disable(place <= 0);
                         row.AddButtonCompact("▼", () => MoveRoute(route, 1)).Width(30f).Height(30f).Disable(place < 0 || place >= inSection.Count - 1);
 
+                        // The frequent actions are the buttons below; the menu has the ones that replace or delete.
                         List<DropdownMenu.RowData> options = [
-                            new("Overwrite from Loco", "Overwrites route with waypoints from current loco"),
-                            new("Add from Loco", "Appends current loco waypoints to the end of the route"),
-                            new("Copy to Loco", "Appends waypoints from this route to the current loco"),
+                            new("Replace from loco", "Replaces this route's waypoints with the selected locomotive's queue"),
+                            new("Delete all waypoints", "Empties this route"),
                             new("Delete route", "Deletes this route")
                             ];
                         row.AddOptionsDropdown(options, (value =>
@@ -393,15 +423,12 @@ namespace WaypointQueue.UI
                             switch (value)
                             {
                                 case 0:
-                                    SetFromSelectedLoco(route);
+                                    PromptReplaceFromSelectedLoco(route);
                                     break;
                                 case 1:
-                                    AppendFromSelectedLoco(route);
+                                    PresentDeleteAllWaypointsModal(route);
                                     break;
                                 case 2:
-                                    SendToSelectedLoco(route);
-                                    break;
-                                case 3:
                                     PromptDeleteModal(items);
                                     break;
                                 default:
@@ -423,6 +450,7 @@ namespace WaypointQueue.UI
                             RouteRegistry.RenameSection(route, newSection);
                             RebuildWithScrolls();
                         }, placeholder: "Assign section to organize route in list"));
+                        BuildLoopFields(route, stack);
                     });
 
                     detail.ButtonStrip(row =>
@@ -432,13 +460,13 @@ namespace WaypointQueue.UI
                             WaypointPicker.Shared.StartPickingWaypointForRoute(RouteRegistry.AddWaypointToRoute, route.Id);
                         });
 
-                        row.AddButton("Add from Loco", () =>
+                        row.AddButton("Add from loco", () =>
                         {
                             AppendFromSelectedLoco(route);
                         });
 
                         row.Spacer();
-                        row.AddButton("Copy to Loco", () => SendToSelectedLoco(route));
+                        row.AddButton("Send to loco", () => SendToSelectedLoco(route));
                     });
 
                     detail.AddHRule();
@@ -455,25 +483,21 @@ namespace WaypointQueue.UI
 
                         scroll.HStack(head =>
                         {
-                            head.AddLabel($"Showing waypoints for route: {route.Name}");
+                            int count = route.Waypoints.Count;
+                            head.AddLabel(count == 1 ? "1 waypoint" : $"{count} waypoints").VerticalTextAlignment(TMPro.VerticalAlignmentOptions.Middle);
                             head.Spacer();
-
-                            var ops = new List<DropdownMenu.RowData>
+                            head.AddButtonCompact("Expand all", () =>
                             {
-                                new DropdownMenu.RowData("Refresh", "Refreshes the panel"),
-                                new DropdownMenu.RowData("Delete all", "")
-                            };
-                            head.AddOptionsDropdown(ops, (int v) =>
-                            {
-                                switch (v)
+                                foreach (var w in RouteRegistry.Current(route).Waypoints)
                                 {
-                                    case 0:
-                                        RebuildWithScrolls();
-                                        break;
-                                    case 1:
-                                        PresentDeleteAllWaypointsModal(route);
-                                        break;
+                                    _expandedWaypointIds.Add(w.Id);
                                 }
+                                RebuildWithScrolls();
+                            });
+                            head.AddButtonCompact("Collapse all", () =>
+                            {
+                                _expandedWaypointIds.Clear();
+                                RebuildWithScrolls();
                             });
                             head.Spacer(8f);
                         });
@@ -526,8 +550,21 @@ namespace WaypointQueue.UI
 
         private void BuildRouteWaypointSection(RouteDefinition route, ManagedWaypoint mw, int index, int totalWaypoints, UIPanelBuilder builder)
         {
-            if (!mw.IsValidForRoute())
+            // A waypoint whose track or car is gone can't be edited or sent; say so instead of hiding it.
+            string whyInvalid = WaypointSummary.WhyInvalid(mw);
+            if (whyInvalid != null)
             {
+                builder.VStack(item =>
+                {
+                    item.AddHRule();
+                    item.Spacer(16f);
+                    item.HStack(row =>
+                    {
+                        string name = string.IsNullOrEmpty(mw.Name) ? string.Empty : $" - {mw.Name}";
+                        row.AddLabel($"Waypoint {index + 1}{name}: <color=#ff9999>can't be used, {whyInvalid}</color>").FlexibleWidth();
+                        row.AddButtonCompact("Delete", () => RouteRegistry.RemoveWaypoint(mw, route.Id));
+                    });
+                });
                 return;
             }
 
@@ -563,7 +600,55 @@ namespace WaypointQueue.UI
                  {
                      SendToSelectedLoco(current, start, andTheRest ? int.MaxValue : 1);
                  }
+             },
+             isCollapsed: () => !_expandedWaypointIds.Contains(mw.Id),
+             onToggleCollapsed: () =>
+             {
+                 if (!_expandedWaypointIds.Remove(mw.Id))
+                 {
+                     _expandedWaypointIds.Add(mw.Id);
+                 }
+                 if (panelsByWaypointId.TryGetValue(mw.Id, out UIPanelBuilder panel))
+                 {
+                     panel.Rebuild();
+                 }
              });
+        }
+
+        // Looping: when the selected locomotive's queue runs empty, this route's waypoints are added again. A locomotive
+        // follows one route; the car's Operations panel shows the same setting.
+        private void BuildLoopFields(RouteDefinition route, UIPanelBuilder builder)
+        {
+            List<string> looping = [.. RouteAssignmentRegistry.RouteAssignments.Values
+                .Where(a => a.RouteId == route.Id && a.Loop)
+                .Select(a => TrainController.Shared.TryGetCarForId(a.LocoId, out Car car) ? car.Ident.ToString() : null)
+                .Where(ident => ident != null)];
+            builder.AddField("Looping", builder.AddLabel(looping.Count == 0 ? "<i>none</i>" : string.Join(", ", looping)));
+
+            BaseLocomotive loco = TrainController.Shared.SelectedLocomotive;
+            if (loco == null)
+            {
+                return;
+            }
+            string locoId = loco.id;
+            var loopField = builder.AddField($"Loop on {loco.Ident}", builder.AddToggle(() =>
+            {
+                var (routeId, loop) = RouteAssignmentRegistry.Get(locoId);
+                return routeId == route.Id && loop;
+            }, (bool value) =>
+            {
+                var (routeId, _) = RouteAssignmentRegistry.Get(locoId);
+                if (value)
+                {
+                    RouteAssignmentRegistry.Set(locoId, route.Id, true);
+                }
+                else if (routeId == route.Id)
+                {
+                    RouteAssignmentRegistry.Set(locoId, route.Id, false);
+                }
+                RebuildWithScrolls();
+            }));
+            WaypointWindow.AddLabelOnlyTooltip(loopField, "Loop", $"Whenever {loco.Ident}'s queue runs empty, this route's waypoints are added to it again. If the queue is empty now, they are added at once.\n\nA locomotive loops one route at a time: this replaces any other route set for it in its Operations panel.");
         }
 
         private void MoveRoute(RouteDefinition route, int direction)
@@ -583,19 +668,62 @@ namespace WaypointQueue.UI
                 Toast.Present("Select a locomotive to send the waypoints to.");
                 return;
             }
+            int wanted = Math.Max(0, Math.Min(count, route.Waypoints.Count - start));
             int added = WaypointQueueController.Shared.AddWaypointsFromRoute(loco, route, start, count);
-            Toast.Present(added == 1 ? $"Added 1 waypoint to {loco.Ident}'s queue." : $"Added {added} waypoints to {loco.Ident}'s queue.");
+            string text = added == 1 ? $"Added 1 waypoint to {loco.Ident}'s queue." : $"Added {added} waypoints to {loco.Ident}'s queue.";
+            if (added < wanted)
+            {
+                text += $" {wanted - added} can't be used (track or car gone).";
+            }
+            Toast.Present(text);
         }
 
-        private void SetFromSelectedLoco(RouteDefinition route)
+        // The selected locomotive's queue, or null (with a toast) if there's none to copy.
+        private static List<ManagedWaypoint> SelectedLocoQueue(out BaseLocomotive loco)
+        {
+            loco = TrainController.Shared.SelectedLocomotive;
+            if (loco == null)
+            {
+                Toast.Present("Select a locomotive to copy its queue from.");
+                return null;
+            }
+            List<ManagedWaypoint> list = ModStateManager.Shared.GetLocoWaypointState(loco.id).Waypoints;
+            if (list == null || list.Count == 0)
+            {
+                Toast.Present($"{loco.Ident} has no waypoints.");
+                return null;
+            }
+            return list;
+        }
+
+        private void PromptReplaceFromSelectedLoco(RouteDefinition route)
         {
             route = RouteRegistry.Current(route);
-            var loco = TrainController.Shared.SelectedLocomotive;
-            if (loco == null) return;
+            List<ManagedWaypoint> list = SelectedLocoQueue(out BaseLocomotive loco);
+            if (list == null)
+            {
+                return;
+            }
+            if (route.Waypoints.Count == 0)
+            {
+                SetFromSelectedLoco(route, list);
+                return;
+            }
+            string theirs = list.Count == 1 ? "1 waypoint" : $"{list.Count} waypoints";
+            string ours = route.Waypoints.Count == 1 ? "its 1 waypoint" : $"its {route.Waypoints.Count} waypoints";
+            ModalAlertController.Present($"Replace route \"{route.Name}\" with {loco.Ident}'s {theirs}?", $"The route loses {ours}. This cannot be undone.",
+                [(true, "Replace"), (false, "Cancel")],
+                (bool b) =>
+                {
+                    if (b)
+                    {
+                        SetFromSelectedLoco(RouteRegistry.Current(route), list);
+                    }
+                });
+        }
 
-            LocoWaypointState state = ModStateManager.Shared.GetLocoWaypointState(loco.id);
-            List<ManagedWaypoint> list = state.Waypoints;
-
+        private void SetFromSelectedLoco(RouteDefinition route, List<ManagedWaypoint> list)
+        {
             route.Waypoints.Clear();
 
             if (list != null)
@@ -620,12 +748,9 @@ namespace WaypointQueue.UI
         private void AppendFromSelectedLoco(RouteDefinition route)
         {
             route = RouteRegistry.Current(route);
-            var loco = TrainController.Shared.SelectedLocomotive;
-            if (loco == null || route == null) return;
-
-            LocoWaypointState state = ModStateManager.Shared.GetLocoWaypointState(loco.id);
-            List<ManagedWaypoint> list = state.Waypoints;
-            if (list == null || list.Count == 0) return;
+            if (route == null) return;
+            List<ManagedWaypoint> list = SelectedLocoQueue(out _);
+            if (list == null) return;
 
             foreach (var mw in list)
             {

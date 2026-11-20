@@ -57,6 +57,15 @@ namespace WaypointQueue
             return route;
         }
 
+        // All routes in the custom order: by section, then the order set with the arrows, then name.
+        public static List<RouteDefinition> Ordered()
+        {
+            return [.. Routes.Values
+                .OrderBy(r => r.Section ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(r => r.SortIndex)
+                .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)];
+        }
+
         // A section's routes in their custom order.
         public static List<RouteDefinition> InSection(string section)
         {

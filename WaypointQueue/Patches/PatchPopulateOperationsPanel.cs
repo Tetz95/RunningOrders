@@ -24,7 +24,7 @@ namespace WaypointQueue
 
             if (!car.CarType.IsLocomotive) return;
 
-            List<RouteDefinition> routes = [.. ModStateManager.Shared.Routes.Values];
+            List<RouteDefinition> routes = RouteRegistry.Ordered();
 
             builder.AddSection("Routes", section =>
             {

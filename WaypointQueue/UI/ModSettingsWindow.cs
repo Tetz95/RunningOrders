@@ -56,33 +56,24 @@ namespace WaypointQueue.UI
 
                 builder.Spacer(16f);
 
-                builder.AddSection("Brake system");
-                BuildBrakeSystemSection(builder);
+                builder.AddSection("Movement");
+                BuildMovementSection(builder);
 
                 builder.Spacer(16f);
 
-                builder.AddSection("Coupling options");
+                builder.AddSection("Coupling");
+                BuildCouplingBrakeDefaults(builder);
+                builder.Spacer(16f);
                 BuildCouplingBehaviorSection(builder);
 
                 builder.Spacer(16f);
 
-                builder.AddSection("Uncoupling options");
+                builder.AddSection("Uncoupling");
                 BuildUncouplingBehaviorSection(builder);
-
                 builder.Spacer(16f);
-
-                builder.AddSection("Post-coupling cut options");
                 BuildPostCouplingCutSection(builder);
-
                 builder.Spacer(16f);
-
-                builder.AddSection("Speed options");
-                BuildSpeedOptionsSection(builder);
-
-                builder.Spacer(16f);
-
-                builder.AddSection("Experimental");
-                BuildExperimentalOptionsSection(builder);
+                BuildUncouplingBrakeDefaults(builder);
 
                 builder.Spacer(16f);
 
@@ -125,7 +116,8 @@ namespace WaypointQueue.UI
             });
         }
 
-        private void BuildBrakeSystemSection(UIPanelBuilder builder)
+        // Coupling: what a new coupling order does with air and hand brakes.
+        private void BuildCouplingBrakeDefaults(UIPanelBuilder builder)
         {
             builder.HStack(row =>
             {
@@ -149,20 +141,11 @@ namespace WaypointQueue.UI
                 row.Spacer(8f);
                 row.AddLabel("Release handbrakes by default when coupling");
             });
+        }
 
-            builder.Spacer(8f);
-            builder.HStack(row =>
-            {
-                row.AddToggle(() => Settings.StopFastForwardAtWaypoints, (bool val) =>
-                {
-                    Settings.StopFastForwardAtWaypoints = val;
-                    Save();
-                });
-                row.Spacer(8f);
-                row.AddLabel("Stop Fast Forward at each waypoint");
-            });
-
-            builder.Spacer(8f);
+        // Uncoupling: what a new cut does with air and hand brakes, and how many hand brakes it sets.
+        private void BuildUncouplingBrakeDefaults(UIPanelBuilder builder)
+        {
             builder.HStack(row =>
             {
                 row.AddToggle(() => Settings.BleedAirByDefault, val =>
@@ -290,24 +273,12 @@ namespace WaypointQueue.UI
             builder.Spacer(16f);
         }
 
+        // The cut after coupling (pickup or dropoff, chosen on the waypoint): its default uncoupling mode.
         private void BuildPostCouplingCutSection(UIPanelBuilder builder)
         {
             builder.HStack(row =>
             {
-                row.AddLabel("Default post-coupling cut mode");
-                row.Spacer(8f);
-                row.AddDropdown(["Pickup", "Dropoff"], (int)Settings.DefaultPostCouplingCutMode, (int val) =>
-                {
-                    // enum starts at 0 so no + 1
-                    Settings.DefaultPostCouplingCutMode = (WaypointQueueSettings.PostCoupleCutModeDefaultOptions)val;
-                    Save();
-                }).FlexibleWidth();
-            });
-
-            builder.Spacer(8f);
-            builder.HStack(row =>
-            {
-                row.AddLabel("Default uncoupling mode when performing post-coupling cuts");
+                row.AddLabel("Default uncoupling mode for the cut after coupling");
                 row.Spacer(8f);
                 row.AddDropdown(["By count", "By destination area", "By destination industry", "By destination track", "By specific car", "All except locomotives"], (int)Settings.DefaultPostCouplingCutUncouplingMode, (int val) =>
                 {
@@ -318,8 +289,30 @@ namespace WaypointQueue.UI
             });
         }
 
-        private void BuildSpeedOptionsSection(UIPanelBuilder builder)
+        private void BuildMovementSection(UIPanelBuilder builder)
         {
+            builder.HStack(row =>
+            {
+                row.AddToggle(() => Settings.StopFastForwardAtWaypoints, (bool val) =>
+                {
+                    Settings.StopFastForwardAtWaypoints = val;
+                    Save();
+                });
+                row.Spacer(8f);
+                row.AddLabel("Stop Fast Forward at each waypoint");
+            });
+
+            builder.HStack(row =>
+            {
+                row.AddToggle(() => Settings.ShowTimeInTrainSymbolDropdown, (bool val) =>
+                {
+                    Settings.ShowTimeInTrainSymbolDropdown = val;
+                    Save();
+                });
+                row.Spacer(8f);
+                row.AddLabel("Show departure times in the train symbol list");
+            });
+
             builder.HStack(row =>
             {
                 row.AddToggle(() => Settings.DoNotLimitPassingSpeedDefault, (bool val) =>
@@ -350,20 +343,6 @@ namespace WaypointQueue.UI
                 () => $"{Settings.PassingSpeedForKickingCars} mph",
                 (float val) => { Settings.PassingSpeedForKickingCars = (int)val; Save(); },
                 increment: 1, minValue: 0, maxValue: 100);
-        }
-
-        private void BuildExperimentalOptionsSection(UIPanelBuilder builder)
-        {
-            builder.HStack(row =>
-            {
-                row.AddToggle(() => Settings.EnableWaypointOrientationFeature, (bool val) =>
-                {
-                    Settings.EnableWaypointOrientationFeature = val;
-                    Save();
-                });
-                row.Spacer(8f);
-                row.AddLabel("Enable support for the base game's new AE waypoint orientation and direction feature.");
-            });
         }
 
         private void BuildDiagnosticsOptionsSection(UIPanelBuilder builder)

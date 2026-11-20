@@ -100,6 +100,83 @@ namespace WaypointQueue
             return TrainPrediction.ForQueueIndex(locomotive, int.Parse(index, CultureInfo.InvariantCulture)).Explain(locomotive);
         }
 
+        // ---------- Routes (named without spaces in tests) ----------
+
+        // A new route (or the one with this name, emptied) holding copies of the loco's queue, as "Replace from loco".
+        public static string RouteFromQueue(string loco, string name)
+        {
+            if (!TryLoco(loco, out BaseLocomotive locomotive, out string error)) return error;
+            RouteDefinition route = RouteByName(name) ?? RouteRegistry.CreateNewRoute();
+            route = RouteRegistry.Current(route);
+            route.Name = name;
+            route.Waypoints.Clear();
+            foreach (ManagedWaypoint w in State(locomotive).Waypoints)
+            {
+                if (w.TryCopyForRoute(out ManagedWaypoint copy))
+                {
+                    route.Waypoints.Add(copy);
+                }
+            }
+            ModStateManager.Shared.SaveRoute(route);
+            return $"route {name}: {route.Waypoints.Count} waypoint(s)";
+        }
+
+        // Adds count waypoints of the route from start (0 = first; count "all" = to the end) to the loco's queue, as
+        // "Send to loco" / "Send to loco from here" do.
+        public static string RouteSend(string name, string loco, string start, string count)
+        {
+            if (!TryLoco(loco, out BaseLocomotive locomotive, out string error)) return error;
+            RouteDefinition route = RouteByName(name);
+            if (route == null) return "no route " + name;
+            int n = count == "all" ? int.MaxValue : int.Parse(count, CultureInfo.InvariantCulture);
+            int added = WaypointQueueController.Shared.AddWaypointsFromRoute(locomotive, route, int.Parse(start, CultureInfo.InvariantCulture), n);
+            return $"added {added}; queue {State(locomotive).Waypoints.Count}";
+        }
+
+        // Moves a route up or down in its section (custom order).
+        public static string RouteMove(string name, string direction)
+        {
+            RouteDefinition route = RouteByName(name);
+            if (route == null) return "no route " + name;
+            RouteRegistry.Move(route, direction == "up" ? -1 : 1, toEnd: false);
+            return RouteList();
+        }
+
+        public static string RouteLoop(string name, string loco, string on)
+        {
+            if (!TryLoco(loco, out BaseLocomotive locomotive, out string error)) return error;
+            RouteDefinition route = RouteByName(name);
+            if (route == null) return "no route " + name;
+            RouteAssignmentRegistry.Set(locomotive.id, route.Id, bool.Parse(on));
+            return $"{locomotive.Ident} loops {name}: {on}";
+        }
+
+        public static string RouteDelete(string name)
+        {
+            RouteDefinition route = RouteByName(name);
+            if (route == null) return "no route " + name;
+            RouteRegistry.Remove(route.Id);
+            return "deleted " + name;
+        }
+
+        // Every route in the custom order: section, name, waypoint count.
+        public static string RouteList()
+        {
+            List<RouteDefinition> routes = RouteRegistry.Ordered();
+            return $"{routes.Count} route(s)" + (routes.Count > 0 ? " | " + string.Join(" | ", routes.Select(r => $"[{r.Section}] {r.Name} ({r.Waypoints.Count})")) : "");
+        }
+
+        // Opens the Routes window on this route, its waypoints expanded ("all") or compact ("none").
+        public static string RouteShow(string name, string expand)
+        {
+            RouteDefinition route = RouteByName(name);
+            if (route == null) return "no route " + name;
+            UI.RouteManagerWindow.Shared.ShowRoute(route.Id, expand == "all");
+            return "showing " + name;
+        }
+
+        private static RouteDefinition RouteByName(string name) => RouteRegistry.Routes.Values.FirstOrDefault(r => r.Name == name);
+
         private static LocoWaypointState State(BaseLocomotive locomotive) => ModStateManager.Shared.GetLocoWaypointState(locomotive.id);
 
         private static bool TryLoco(string query, out BaseLocomotive locomotive, out string error)
