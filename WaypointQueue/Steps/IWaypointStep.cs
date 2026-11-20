@@ -64,8 +64,7 @@ namespace WaypointQueue.Steps
         }
     }
 
-    // "Then change speed": the new maximum speed, within the railroad's speed limit (2026.1 lets the player set it,
-    // 5-100 mph; Legacy's was 45).
+    // "Then change speed": the new maximum speed, within the railroad's speed limit (the player sets it, 5-100 mph).
     internal class SpeedStep : IWaypointStep
     {
         public bool Run(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper, float tickSeconds)

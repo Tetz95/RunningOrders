@@ -277,11 +277,11 @@ namespace WaypointQueue.Services
 
             foreach (Car car in consist)
             {
-                if (car.Archetype == CarArchetype.LocomotiveSteam && working.Contains(car.id) && PatchSteamLocomotive.TryGetTender(car, out Car tender))
+                if (car.CarType.IsLocomotiveSteam && working.Contains(car.id) && PatchSteamLocomotive.TryGetTender(car, out Car tender))
                 {
                     working.Add(tender.id);
                 }
-                else if (car.Archetype == CarArchetype.Tender && car.TryGetAdjacentCar(car.EndToLogical(End.F), out Car parentLoco) && working.Contains(parentLoco.id))
+                else if (car.CarType.IsTender && car.TryGetAdjacentCar(car.EndToLogical(End.F), out Car parentLoco) && working.Contains(parentLoco.id))
                 {
                     working.Add(car.id);
                 }

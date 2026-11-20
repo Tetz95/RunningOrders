@@ -16,7 +16,7 @@ namespace WaypointQueue.Services
         {
             // 2026.1 waypoint orders carry the location as a string, and the pose the player picked, if any.
             Location mark = InsideSegment(location);
-            string locationString = GraphCompat.LocationToString(mark);
+            string locationString = Graph.LocationToString(mark);
             OrderWaypoint? maybeWaypoint = pose != null && !pose.IsEmpty
                 ? pose.ToOrder((BaseLocomotive)Traverse.Create(ordersHelper).Field<Car>("_locomotive").Value, mark, locationString, coupleToCarId)
                 : new OrderWaypoint(locationString, coupleToCarId);
@@ -75,9 +75,8 @@ namespace WaypointQueue.Services
             return new Location(clamped.segment, distance, clamped.end);
         }
 
-        // Sends the locomotive to couple to one end of a car. 2026.1 plans it as the game's own coupling order (the
-        // train placed against that coupler, and a coupling by the wrong ends caught on arrival); Legacy sends the
-        // coupler's location.
+        // Sends the locomotive to couple to one end of a car, as the game's own coupling order (the train placed against
+        // that coupler, and a coupling by the wrong ends caught on arrival).
         public void SendToCouple(AutoEngineerOrdersHelper ordersHelper, Location couplerLocation, Car car, Car.LogicalEnd end)
         {
             var locomotive = (BaseLocomotive)Traverse.Create(ordersHelper).Field<Car>("_locomotive").Value;

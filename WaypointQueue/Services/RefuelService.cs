@@ -245,7 +245,6 @@ namespace WaypointQueue.Services
 
             ModLocator.Loader.LogDebug($"distanceToMove is {distanceToMove}");
 
-            // Legacy's LocationOrientedToward faced away from the end (2026.1's faces toward it): LocationFacingAwayFrom.
             Location orientedTargetLocation = Graph.Shared.LocationFacingAwayFrom(targetLoaderLocation, locationToMoveToward);
 
             Location locationToMove = Graph.Shared.LocationByMoving(orientedTargetLocation, distanceToMove, false, true);

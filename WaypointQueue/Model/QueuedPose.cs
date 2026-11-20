@@ -11,10 +11,10 @@ using UnityEngine;
 
 namespace WaypointQueue.Model
 {
-    // How Railroader 2026.1's picker asked for the train to stand at a waypoint: which end of the train arrives on the
-    // mark, which side of the mark the train lies, the junctions its body was placed over (when the player picked a
-    // particular placement), how long the train was then, and which end of the car to couple to. Kept as plain values
-    // so saves and route files read the same in both game versions; Legacy has no poses and never sets one.
+    // How the game's picker asked for the train to stand at a waypoint: which end of the train arrives on the mark,
+    // which side of the mark the train lies, the junctions its body was placed over (when the player picked a particular
+    // placement), how long the train was then, and which end of the car to couple to. Kept as plain values, so saves
+    // and route files don't depend on the game's own types.
     public class QueuedPose
     {
         // WaypointEnd: 0 nearest end, 1 consist end A, 2 consist end B.

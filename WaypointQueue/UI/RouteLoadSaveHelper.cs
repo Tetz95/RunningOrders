@@ -58,7 +58,6 @@ namespace WaypointQueue.UI
             ModalAlertController.Present(delegate (UIPanelBuilder builder, Action dismissAction)
             {
                 UIPanelBuilder alertBuilder = builder;
-                //builder.Spacing = 16f;
                 string title;
                 string subtitle;
                 switch (mode)

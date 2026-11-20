@@ -244,7 +244,6 @@ namespace WaypointQueue.UI
 
             panelsByWaypointId.Clear();
 
-            //builder.Spacing = 12f;
 
             builder.VScrollView(delegate (UIPanelBuilder builder)
             {

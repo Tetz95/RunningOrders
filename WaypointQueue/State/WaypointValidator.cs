@@ -66,7 +66,6 @@ namespace WaypointQueue.State
 
             ModalAlertController.Present((UIPanelBuilder builder, Action dismiss) =>
             {
-                //builder.Spacing = 16f;
                 builder.AddLabel("Invalid waypoint data detected", delegate (TMP_Text text)
                 {
                     text.fontSize = 22f;

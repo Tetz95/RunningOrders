@@ -426,3 +426,7 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Railroader 2026.1 build folders (Directory.Build.props one level up)
+obj-rr2026/
+bin-rr2026/

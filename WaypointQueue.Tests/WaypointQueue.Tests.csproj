@@ -4,7 +4,7 @@
     WaypointQueue.csproj (whose build also installs the mod) this compiles the
     mod sources together with the tests into one test assembly.
 
-    Run: dotnet test WaypointQueue.Tests/WaypointQueue.Tests.csproj
+    Run: dotnet test WaypointQueue.Tests/WaypointQueue.Tests.csproj (outside the game: the tests use plain test cars)
     The game install folder comes from Paths.user (RrInstallDir).
   -->
   <Import Project="..\Paths.user" Condition="Exists('..\Paths.user')" />
@@ -20,11 +20,12 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <RrManagedDir>$(RrInstallDir)\Railroader_Data\Managed</RrManagedDir>
     <WqSource>..\WaypointQueue</WqSource>
+    <RR2026Ported>true</RR2026Ported>
   </PropertyGroup>
 
-  <!-- The tests in this folder are included by default; add the mod sources -->
+  <!-- The tests in this folder are included by default; add the mod sources (not their build folders) -->
   <ItemGroup>
-    <Compile Include="$(WqSource)\**\*.cs" Exclude="$(WqSource)\obj\**;$(WqSource)\bin\**" />
+    <Compile Include="$(WqSource)\**\*.cs" Exclude="$(WqSource)\obj\**;$(WqSource)\bin\**;$(WqSource)\obj-rr2026\**;$(WqSource)\bin-rr2026\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -32,7 +33,6 @@
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="Nullable" Version="1.3.1" PrivateAssets="all" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
-    <PackageReference Include="Moq" Version="4.20.72" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
   </ItemGroup>

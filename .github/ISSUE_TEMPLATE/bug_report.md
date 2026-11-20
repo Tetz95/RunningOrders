@@ -31,11 +31,8 @@ _If applicable, add screenshots or video to help explain your problem._
 ### Log files
 _Attaching your log files helps resolve bugs much faster!_
 - Please attach your **Player.log** file immediately after reproducing the bug.
-- **If you are using Railloader**, please attach your **Railloader.log** file as well.
 
-> The **Player.log** file is typically found at ``C:\Users\YourUsername\AppData\LocalLow\Giraffe Lab LLC\Railroader\Player.log``. You can also find this file from the game by opening the Unity Mod Manager menu with Ctrl+F10, clicking the "**Logs**" button and then clicking the "**Open detailed log**" button.
-
-> The **Railloader.log** file is located in your Railroader game install directory where Railroader.exe is located.
+> The **Player.log** file is found at ``C:\Users\YourUsername\AppData\LocalLow\Giraffe Lab LLC\Railroader\Player.log``. The game starts a new one at each launch, so copy it right after the problem, before starting the game again.
 
 ### Additional context
 _Add any other context about the problem here._

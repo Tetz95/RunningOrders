@@ -13,6 +13,7 @@
     <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <AssemblyName>WaypointQueue</AssemblyName>
+    <RR2026Ported>true</RR2026Ported>
     <RootNamespace>WaypointQueue</RootNamespace>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <Deterministic>false</Deterministic>

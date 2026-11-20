@@ -6,7 +6,7 @@ The following is a set of guidelines for contributing to Waypoint Queue.
 
 ## Code of Conduct
 
-This project and everyone participating in it is governed by the project [Code of Conduct](https://github.com/PrinceOfPluto/WaypointQueue/blob/main/CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+This project and everyone participating in it is governed by the project [Code of Conduct](https://github.com/Tetz95/WaypointQueue/blob/tetz/CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
 
 ## How Can I Contribute?
 
@@ -14,19 +14,19 @@ This project and everyone participating in it is governed by the project [Code o
 
 This section guides you through submitting a bug report for Waypoint Queue. Following these guidelines helps maintainers and the community understand your report :pencil:, reproduce the behavior :computer:, and find related reports :mag_right:.
 
-Before creating bug reports, please check [this list](#before-submitting-a-bug-report) as you might find out that you don't need to create one. When you are creating a bug report, please [include as many details as possible](#how-do-i-submit-a-good-bug-report). Fill out [the required template](https://github.com/PrinceOfPluto/WaypointQueue/blob/main/.github/ISSUE_TEMPLATE/bug_report.md), the information it asks for helps us resolve issues faster.
+Before creating bug reports, please check [this list](#before-submitting-a-bug-report) as you might find out that you don't need to create one. When you are creating a bug report, please [include as many details as possible](#how-do-i-submit-a-good-bug-report). Fill out [the required template](https://github.com/Tetz95/WaypointQueue/blob/tetz/.github/ISSUE_TEMPLATE/bug_report.md), the information it asks for helps us resolve issues faster.
 
 > **Note:** If you find a **Closed** issue that seems like it is the same thing that you're experiencing, open a new issue and include a link to the original issue in the body of your new one.
 
 
 #### Before Submitting A Bug Report
 
-- **Check if you can reproduce the problem [in the latest version of Waypoint Queue](https://github.com/PrinceOfPluto/WaypointQueue/releases)**.
+- **Check if you can reproduce the problem [in the latest version of Waypoint Queue](https://github.com/Tetz95/WaypointQueue/releases)**.
 - **Search the Waypoint Queue thread** in the modding directory of the **[official Railroader Discord server](https://discord.gg/KpVkaDM7Nb)** for common questions.
-- **Perform a [cursory search](https://github.com/PrinceOfPluto/WaypointQueue/issues)** to see if the problem has already been reported. If it has **and the issue is still open**, add a comment to the existing issue instead of opening a new one.
+- **Perform a [cursory search](https://github.com/Tetz95/WaypointQueue/issues)** to see if the problem has already been reported. If it has **and the issue is still open**, add a comment to the existing issue instead of opening a new one.
 
 #### How Do I Submit A Good Bug Report?
-Bugs are tracked as [GitHub issues](https://guides.github.com/features/issues/). Create an issue on the repository and provide the following information by filling in [the template](https://github.com/PrinceOfPluto/WaypointQueue/blob/main/.github/ISSUE_TEMPLATE/bug_report.md).
+Bugs are tracked as [GitHub issues](https://guides.github.com/features/issues/). Create an issue on the repository and provide the following information by filling in [the template](https://github.com/Tetz95/WaypointQueue/blob/tetz/.github/ISSUE_TEMPLATE/bug_report.md).
 
 - Use a clear and descriptive title for the issue to identify the problem
 - A clear and concise description of what the bug is.
@@ -36,7 +36,7 @@ Bugs are tracked as [GitHub issues](https://guides.github.com/features/issues/).
 - Attach your **Player.log** file immediately after reproducing the bug.
 - **If you are using Railloader**, attach your **Railloader.log** file as well.
 
-> The **Player.log** file is typically found at ``C:\Users\YourUsername\AppData\LocalLow\Giraffe Lab LLC\Railroader\Player.log``. You can also find this file from the game by opening the Unity Mod Manager menu with Ctrl+F10, clicking the "**Logs**" button and then clicking the "**Open detailed log**" button.
+> The **Player.log** file is found at ``C:\Users\YourUsername\AppData\LocalLow\Giraffe Lab LLC\Railroader\Player.log``. The game starts a new one at each launch, so copy it right after the problem, before starting the game again.
 
 > The **Railloader.log** file is located in your Railroader game install directory where Railroader.exe is located.
 
@@ -44,12 +44,12 @@ Bugs are tracked as [GitHub issues](https://guides.github.com/features/issues/).
 
 This section guides you through submitting an enhancement suggestion for Waypoint Queue, including completely new features and minor improvements to existing functionality. Following these guidelines helps maintainers and the community understand your suggestion :pencil: and find related suggestions :mag_right:.
 
-Before creating enhancement suggestions, please check [this list](#before-submitting-an-enhancement-suggestion) as you might find out that you don't need to create one. When you are creating an enhancement suggestion, please [include as many details as possible](#how-do-i-submit-a-good-enhancement-suggestion). Fill in [the template](https://github.com/PrinceOfPluto/WaypointQueue/blob/main/.github/ISSUE_TEMPLATE/feature_request_.md), including the steps that you imagine you would take if the feature you're requesting existed.
+Before creating enhancement suggestions, please check [this list](#before-submitting-an-enhancement-suggestion) as you might find out that you don't need to create one. When you are creating an enhancement suggestion, please [include as many details as possible](#how-do-i-submit-a-good-enhancement-suggestion). Fill in [the template](https://github.com/Tetz95/WaypointQueue/blob/tetz/.github/ISSUE_TEMPLATE/feature_request.md), including the steps that you imagine you would take if the feature you're requesting existed.
 
 #### Before Submitting An Enhancement Suggestion
 
-* **Check the [official Railroader Discord](https://discord.gg/KpVkaDM7Nb)** for tips — you might discover that the enhancement is already available. Most importantly, check if you're using [the latest version of Waypoint Queue](https://github.com/PrinceOfPluto/WaypointQueue/releases/latest) and if you can get the desired behavior by changing Waypoint Queue's mod settings by pressing Ctrl+F10.
-* **Perform a [cursory search](https://github.com/PrinceOfPluto/WaypointQueue/issues)** to see if the enhancement has already been suggested. If it has, add a comment to the existing issue instead of opening a new one.
+* **Check the [official Railroader Discord](https://discord.gg/KpVkaDM7Nb)** for tips — you might discover that the enhancement is already available. Most importantly, check if you're using [the latest version of Waypoint Queue](https://github.com/Tetz95/WaypointQueue/releases/latest) and if you can get the desired behavior by changing Waypoint Queue's settings (the game's Settings window, *Waypoint Queue* > *Open settings*).
+* **Perform a [cursory search](https://github.com/Tetz95/WaypointQueue/issues)** to see if the enhancement has already been suggested. If it has, add a comment to the existing issue instead of opening a new one.
 
 #### How Do I Submit A Good Enhancement Suggestion?
 
@@ -74,7 +74,7 @@ This section guides you through submitting a pull request for Waypoint Queue. Th
 
 #### Before Submitting A Pull Request
 
-- **Before you get started**, [look for an issue](https://github.com/PrinceOfPluto/WaypointQueue/issues) you want to work on. Please make sure this issue is not currently assigned to someone else. If there's no existing issue for your idea, please open one following the above guidelines for [reporting bugs](https://github.com/PrinceOfPluto/WaypointQueue/blob/main/CONTRIBUTING.md#reporting-bugs) and [suggesting enhancements](https://github.com/PrinceOfPluto/WaypointQueue/blob/main/CONTRIBUTING.md#suggesting-enhancements).
+- **Before you get started**, [look for an issue](https://github.com/Tetz95/WaypointQueue/issues) you want to work on. Please make sure this issue is not currently assigned to someone else. If there's no existing issue for your idea, please open one following the above guidelines for [reporting bugs](https://github.com/Tetz95/WaypointQueue/blob/tetz/CONTRIBUTING.md#reporting-bugs) and [suggesting enhancements](https://github.com/Tetz95/WaypointQueue/blob/tetz/CONTRIBUTING.md#suggesting-enhancements).
 - **Once you select an issue**, please discuss your idea for the fix or implementation in the comments for that issue. There are often several ways to fix a problem and it's possible that someone else may have a plan for the issue, or that there's context you should know before starting implementation.
 - **After the approach has been discussed** and everything looks good, you can begin local development. Please don't start development work without discussing it first. Otherwise, you might waste time on an issue if work is already being done on it, or if there's something else in the way!
 

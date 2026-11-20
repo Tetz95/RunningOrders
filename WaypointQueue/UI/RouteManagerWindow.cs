@@ -232,7 +232,6 @@ namespace WaypointQueue.UI
         {
             panelsByWaypointId.Clear();
 
-            //builder.Spacing = 0f;
             var filteredRoutes = RouteRegistry.Routes.Values;
 
             if (!string.IsNullOrWhiteSpace(_searchFilter))
@@ -381,7 +380,6 @@ namespace WaypointQueue.UI
                 _selectedRouteId,
                 (detail, route) =>
                 {
-                    //detail.Spacing = 12f;
 
                     if (route == null)
                     {
@@ -439,7 +437,6 @@ namespace WaypointQueue.UI
                     detail.FieldLabelWidth = 80f;
                     detail.VStack(stack =>
                     {
-                        //stack.Spacing = 2f;
                         stack.AddField("Name", stack.AddInputField(route.Name, newName =>
                         {
                             RouteRegistry.Rename(route, newName);

@@ -167,7 +167,7 @@ namespace WaypointQueue
             if (panel == null)
                 return 0f;
             CTCInterlocking interlocking = panel.AllInterlockings.Values.FirstOrDefault(il =>
-                il != null && il.switchSets != null && il.switchSets.Any(set => set.switchNodes != null && set.switchNodes.Contains(node)));
+                il != null && il.switchSets != null && il.switchSets.Any(set => set.switchNodeIds != null && set.switchNodeIds.Contains(node.id)));
             if (interlocking == null)
                 return 0f;
             List<TrackSpan> spans = interlocking.Blocks

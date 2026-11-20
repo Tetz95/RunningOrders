@@ -1,59 +1,75 @@
 # Waypoint Queue (Tetz fork)
 
-This branch (`tetz`) is Tetz95's fork of [PrinceOfPluto's Waypoint Queue](https://github.com/PrinceOfPluto/WaypointQueue) for Railroader 2026.1 (0.6.2 or later), built on his 2.2.1. `main` stays a copy of his `main`. The original is MIT-licensed; its [LICENSE.txt](LICENSE.txt) applies to this fork too.
+A mod for Railroader (0.6.3 or later) that gives the Auto Engineer's waypoint mode a queue: line up waypoints for a
+locomotive, each with its own orders (couple, cut, set brakes, refuel, wait, change speed or timetable symbol), and the
+train works through them one after another. Queues can be saved as routes and sent to any locomotive.
 
-What the fork adds:
-- **Train poses kept through the queue.** The pose chosen in the game's waypoint picker (Space: which end of the train stands on the mark, and on which side) is kept for queued waypoints and sent with them; the Waypoints window shows how the train will stand. *Send past waypoint* goes out as the game's "train past the mark" pose.
-- **The train as it will be.** When picking a waypoint for later in the queue, the picker draws and poses the train as it will be by then, after the earlier couplings and cuts, and says so in its prompt.
-- **Couplings** go out as the game's coupling order for the near end of the car, and a coupling to a car already in the train is refused instead of cutting from the middle of it.
-- **Switches:** switches the auto engineer threw are put back once the train is clear, also after *Send past waypoint*, a cancelled route or a save and load; under CTC a route that turns back beyond an interlocking runs clear of the plant first (setting: *Turn back clear of CTC interlockings*).
-- **Cuts:** cutting works with cars turned around in the train, uncouples on the end that faces the next car, and *All except locomotives* sends locomotives in tow with the cars.
-- **Non-stop waypoints** are reached along the track (not in a straight line) and hand over to the next waypoint before the engineer brakes for them; no route no longer turns the stop into running at track speed.
-- **Refuelling** counts a slot full at the game's own capacity (coal is limited by volume), lines the slot up with a posed waypoint and finds modded loaders built after load.
+It began as Tetz95's fork of [PrinceOfPluto's Waypoint Queue](https://github.com/PrinceOfPluto/WaypointQueue) and is now
+developed on its own. Thanks to PrinceOfPluto for the original; it is MIT-licensed, and its [LICENSE.txt](LICENSE.txt)
+applies here too.
 
-Download: [Releases](https://github.com/Tetz95/WaypointQueue/releases) (`WaypointQueue.Tetz.fork.zip`; install it with your mod manager or unpack it into the game's `Mods` folder). It loads as its own mod (`tetz95/waypoint-queue`) and is incompatible with the original (`princeofpluto/waypointqueue`): install one or the other.
+## Installing
 
-Building: the projects are SDK-style, so `dotnet build WaypointQueue/WaypointQueue.csproj` builds without Visual Studio. In `Paths.user` set `RrInstallDir` (the game folder) and `RrHomeDir` (the folder whose `Mods` the build installs into); `-p:NoInstall=true` builds into `bin\` instead. The Legacy (2025.1) version of these fixes is on the `tetz-legacy` branch.
+Download the zip from [Releases](https://github.com/Tetz95/WaypointQueue/releases) and install it with your mod manager,
+or unpack it into the game's `Mods` folder (one folder, `WaypointQueue`). It loads as `tetz95/waypoint-queue` and can't
+run alongside the original (`princeofpluto/waypointqueue`): install one or the other.
 
-Releasing: set the version in `WaypointQueue/Properties/AssemblyInfo.cs` (his release, then our build number: `2.0.0.1`), build with `dotnet build WaypointQueue/WaypointQueue.csproj -c Release -p:NoInstall=true -o <out>`, package with `python tools/package.py . <out> "WaypointQueue (Tetz fork).zip"` (one top folder `WaypointQueue`; Info.json gets the first three version numbers), tag `v<version>` on `tetz` and attach the zip to a GitHub release as `WaypointQueue (Tetz fork).zip` (GitHub names it `WaypointQueue.Tetz.fork.zip`; keep the name so mod managers offer to replace the old version).
+Settings: in the game's Settings window, *Waypoint Queue* > *Open settings* (key bindings, coupling and cutting defaults,
+hand brakes, speeds).
 
----
+## What it does
 
-# Waypoint Queue
+- **A queue per locomotive.** Pick waypoints with the game's waypoint picker; they're added to the end of the queue (or
+  inserted, or made next). The Waypoints window shows the queue, what each waypoint will do and how the train is doing.
+- **Coupling** to a picked car, the nearest car on arrival, or a car you choose, then air and hand brakes,
+  and optionally a cut right after: pick up or set out cars by count, destination, waybill status or a particular car.
+- **Cutting** by count from either end, by destination (track, industry or area), at a particular car, by waybill status
+  (spotted or not), or everything but the locomotives; with hand brakes, bled air or bottled air as you choose.
+- **How the train stands.** The pose chosen in the picker (Space: which end of the train arrives on the mark, and on
+  which side) is kept for every queued waypoint. When picking a waypoint later in the queue, the picker draws the train
+  as it will be by then, after the earlier couplings and cuts.
+- **Stopping or passing.** A waypoint can be passed without stopping, at a speed of your choice; the train is handed on
+  to the next waypoint before it would brake.
+- **Refueling** at a nearby coal, water or diesel loader, slot by slot.
+- **Waiting** for a number of minutes, until a time of day, or until no car in the train is spotted.
+- **Speed and timetable symbol** changes once a waypoint is reached.
+- **Switches** the engineer threw are put back once the train is clear. Under CTC, a route that turns back beyond an
+  interlocking runs clear of the plant first (setting: *Turn back clear of CTC interlockings*).
+- **Saved routes** (the Routes window): save a queue as a route, sort routes into sections and order them, and send a
+  route, one waypoint of it, or a waypoint and the rest to the selected locomotive. A locomotive can loop a route: when
+  its queue runs empty, the route is added again.
+- **Errors pause the queue.** If an order can't be carried out (a car to couple to is gone, say), the waypoint shows the
+  error and the train waits until you resume or change it.
 
-## Installation
+## Upgrading from 2.2.x
 
-### Requirements
-- [Unity Mod Manager](https://www.nexusmods.com/site/mods/21)
+The versions after 2.2.x are a rewrite: queues in saves and saved routes from 2.2.x and earlier aren't read. Finish or note your queues,
+and re-make your routes after updating. Settings and key bindings carry over.
 
-### Steps:
-1. Download the latest release
-2. Open UMM Installer and make sure you have Railroader selected
-3. Click the Mods tab
-4. Drag and drop the `WaypointQueue_versionNumber.zip` file into UMM
-5. Start up the game
+## Reporting a problem
 
+Open an [issue](https://github.com/Tetz95/WaypointQueue/issues) with what happened, what you expected, and your
+`Player.log` (`%USERPROFILE%\AppData\LocalLow\Giraffe Lab LLC\Railroader\Player.log`, right after the problem). When a
+waypoint shows an error, its *View error* button has a link here too.
 
-### Incompatibilities
-- Incompatible with Refuel Waypoint, however Waypoint Queue has built-in support for refueling locomotives.
+## Building
 
-## Overview
-Waypoint Queue significantly expands the Auto Engineer (AE) Waypoint mode feature from vanilla Railroader. For the latest information on mod features, check the [description on the Nexus Mods page](https://www.nexusmods.com/railroader/mods/1029).
+The projects are SDK-style: `dotnet build WaypointQueue/WaypointQueue.csproj` builds without Visual Studio. Copy
+`Paths.user.example` to `Paths.user` and set `RrInstallDir` (the game folder) and `RrHomeDir` (the folder whose `Mods`
+the build installs into, normally `Documents\Railroader`); `-p:NoInstall=true` builds into `bin\` instead.
 
-All the keybinds are reconfigurable using the UMM Mod Settings menu which you can access by pressing Ctrl+F10.
+Tests: `dotnet test WaypointQueue.Tests/WaypointQueue.Tests.csproj`. They run outside the game: the cut selection
+(which cars a cut takes) works on plain lists of cars, so the tests use simple test cars.
 
+Code layout:
+- `Model\` - a waypoint is the player's order (`WaypointOrder`, never changed by the mod) plus its progress
+  (`WaypointProgress`, saved with the queue so a reload carries on).
+- `Steps\` - what happens on arrival, one step at a time: start, couple, refuel, halt, cut, speed, wait.
+- `Services\` - the game side of coupling, cutting and refueling; `Services\CutSelection.cs` is the pure part.
+- `Picker\` - the game's waypoint picker: poses, and the train drawn as it will be.
+- `UI\` - the Waypoints window (`WaypointWindow.*.cs`, one file per section), the Routes window and the settings.
 
-## Local Development
-
-### Requirements
-- Visual Studio (in the installer, make sure you have SDKs for .NET Framework 4.8, C# support, and NuGet Package Manager)
-
-To start developing locally, follow these steps:
-1. Clone the repo locally
-2. Copy `Paths.user.example` and save it as `Paths.user`.
-3. Open this `Paths.user` file and update the path to the game directory containing `Railroader.exe`
-4. Open the Solution
-
-### During Development
-- Make sure you're using the *Debug* configuration. Every time you build your project, the files will be copied to your Mods folder and you can immediately start the game to test it.
-- If you are interested in contributing to Waypoint Queue, please read the [Contributing guide](https://github.com/PrinceOfPluto/WaypointQueue/blob/main/CODE_OF_CONDUCT.md).
+Releasing: set the version in `WaypointQueue/Properties/AssemblyInfo.cs`, build with
+`dotnet build WaypointQueue/WaypointQueue.csproj -c Release -p:NoInstall=true -o <out>`, package with
+`python tools/package.py . <out> "WaypointQueue (Tetz fork).zip"` (one top folder `WaypointQueue`), tag `v<version>`
+and attach the zip to a GitHub release under that name (mod managers then offer it as an update).

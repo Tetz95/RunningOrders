@@ -33,7 +33,6 @@ namespace WaypointQueue.UI
             ModLocator.Loader.LogDebug("Present processing error modal");
             ModalAlertController.Present((UIPanelBuilder builder, Action dismiss) =>
             {
-                //builder.Spacing = 16f;
                 builder.AddLabel("Waypoint Error Detected", delegate (TMP_Text text)
                 {
                     text.fontSize = 22f;
@@ -103,7 +102,6 @@ namespace WaypointQueue.UI
             ModLocator.Loader.LogDebug("Present tick error modal");
             ModalAlertController.Present((UIPanelBuilder builder, Action dismiss) =>
             {
-                //builder.Spacing = 16f;
                 builder.AddLabel("Waypoint Error Detected", delegate (TMP_Text text)
                 {
                     text.fontSize = 22f;
