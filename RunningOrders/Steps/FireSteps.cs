@@ -36,6 +36,22 @@ namespace RunningOrders.Steps
             }
         }
 
+        // Before the train goes on: when the engine couldn't move while it stood, the game's engineer set the order's
+        // max speed to 0 ("No fuel"; RFU's "Not enough steam" or "Fire is out") and keeps it there, so the next waypoint
+        // (sent with the order's speed) would never move. Puts back the speed from before the fire went down.
+        private const int FallbackMph = 15;
+
+        internal static void RestoreSpeed(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper)
+        {
+            if (ordersHelper.Orders.MaxSpeedMph > 0)
+            {
+                return;
+            }
+            int mph = wp.Progress.SpeedBeforeFire > 0 ? wp.Progress.SpeedBeforeFire : FallbackMph;
+            ordersHelper.SetOrdersValue(null, null, maxSpeedMph: mph, null, null);
+            ModLocator.Loader.Log($"[RFU] {wp.Locomotive.Ident}: the engineer's max speed was 0 after the stand; set back to {mph} mph");
+        }
+
         internal static void RequestHot(ManagedWaypoint wp, double now)
         {
             if (RfuFire.Request(wp.Locomotive, RfuFire.Hot))
@@ -60,6 +76,7 @@ namespace RunningOrders.Steps
                 throw new WaypointProcessingException("Realistic Steam and Fuel Use didn't take the fire change (your access level?).", wp);
             }
             wp.Progress.FireDownSent = true;
+            wp.Progress.SpeedBeforeFire = ordersHelper.Orders.MaxSpeedMph;
             return true;
         }
     }
@@ -71,9 +88,15 @@ namespace RunningOrders.Steps
 
         public bool Run(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper, float tickSeconds)
         {
-            if (!wp.Progress.FireDownSent || !wp.FireHotBeforeLeaving || wp.SteamWaitSkipped
-                || wp.Locomotive is not SteamLocomotive || !RfuFire.Available)
+            if (!wp.Progress.FireDownSent)
             {
+                return true;
+            }
+            // Not waiting for steam here (not hot again, Leave now, or RFU gone): the next order goes out with a speed,
+            // and RFU lights the fire for it and holds the engineer until the engine can move.
+            if (!wp.FireHotBeforeLeaving || wp.SteamWaitSkipped || wp.Locomotive is not SteamLocomotive || !RfuFire.Available)
+            {
+                FireSteps.RestoreSpeed(wp, ordersHelper);
                 return true;
             }
             double now = TimeWeather.Now.TotalSeconds;
@@ -107,6 +130,7 @@ namespace RunningOrders.Steps
                 return false;
             }
             ModLocator.Loader.Log($"[RFU] {wp.Locomotive.Ident}: steam up, going on");
+            FireSteps.RestoreSpeed(wp, ordersHelper);
             return true;
         }
     }

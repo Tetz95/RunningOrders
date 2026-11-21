@@ -47,6 +47,9 @@ namespace RunningOrders.Model
         public bool FireUpSent { get; set; }
         public double FireUpSentAt { get; set; }
         public bool SteamWaitSkipped { get; set; }
+        // The order's max speed when the fire was banked or let go out (0 if unknown): the game's engineer sets it to
+        // 0 when the engine can't move ("No fuel", which RFU shows as "Not enough steam"), and nothing sets it back.
+        public int SpeedBeforeFire { get; set; }
 
         public string StatusLabel { get; set; } = "Inactive";
         public List<WaypointError> Errors { get; set; } = [];
