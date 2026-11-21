@@ -476,7 +476,9 @@ namespace RunningOrders
             RemoveFromEndUnguarded(end, count);
         }
 
-        // The driven locomotive's group: the run of locomotives and tenders around it.
+        // The driven locomotive's group: the run of locomotives working the train around it (it, its tenders and its
+        // multiple-unit partners, as UncouplingService keeps them). A locomotive coupled on in the queue isn't in
+        // multiple unit with it, so it's in tow and goes with the cars, as it will in the cut.
         private (int first, int last) EngineGroup()
         {
             int at = Cars.IndexOf(_locomotive);
@@ -484,11 +486,19 @@ namespace RunningOrders
             {
                 return (-1, -1);
             }
+            HashSet<string> working = WorkingIds();
+            bool Kept(Car car) => working != null ? working.Contains(car.id) : IsEngine(car);
             int first = at, last = at;
-            while (first > 0 && IsEngine(Cars[first - 1])) first--;
-            while (last < Cars.Count - 1 && IsEngine(Cars[last + 1])) last++;
+            while (first > 0 && Kept(Cars[first - 1])) first--;
+            while (last < Cars.Count - 1 && Kept(Cars[last + 1])) last++;
             return (first, last);
         }
+
+        private HashSet<string> _workingIds;
+
+        // The locomotives working the train now (null if the car service isn't there: then every engine counts).
+        private HashSet<string> WorkingIds() =>
+            _workingIds ??= ModLocator.ServiceProvider.GetService<ICarService>()?.GetWorkingLocomotiveIds(_locomotive);
 
         // Only the driven locomotive's group stays, where it stands in the predicted train.
         private void TrimToEngines()
