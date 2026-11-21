@@ -73,4 +73,4 @@ Code layout:
 Releasing: set the version in `RunningOrders/Properties/AssemblyInfo.cs`, build with
 `dotnet build RunningOrders/RunningOrders.csproj -c Release -p:NoInstall=true -o <out>`, package with
 `python tools/package.py . <out> "Tetz's Running Orders.zip"` (one top folder `Tetz's Running Orders`), tag `v<version>`
-and attach the zip to a GitHub release under that name (mod managers then offer it as an update).
+and attach the zip to a GitHub release.

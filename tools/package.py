@@ -12,4 +12,6 @@ with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED) as z:
     z.writestr(TOP + 'Info.json', info)
     for f in ('LICENSE.txt', 'THIRD_PARTY_NOTICES.txt'):
         z.write(os.path.join(repo, f), TOP + f)
+    # 0Harmony.dll's MIT licence (THIRD_PARTY_NOTICES.txt holds it) under the name all our Harmony zips use
+    z.write(os.path.join(repo, 'THIRD_PARTY_NOTICES.txt'), TOP + 'Harmony LICENSE.txt')
 print(ver, dest)
