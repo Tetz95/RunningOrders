@@ -50,6 +50,8 @@ namespace RunningOrders.Model
         // The order's max speed when the fire was banked or let go out (0 if unknown): the game's engineer sets it to
         // 0 when the engine can't move ("No fuel", which RFU shows as "Not enough steam"), and nothing sets it back.
         public int SpeedBeforeFire { get; set; }
+        // The last waypoint holds with the fire down until another waypoint is queued.
+        public bool HoldingForNext { get; set; }
 
         public string StatusLabel { get; set; } = "Inactive";
         public List<WaypointError> Errors { get; set; } = [];

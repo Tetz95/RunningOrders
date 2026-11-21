@@ -17,6 +17,23 @@ namespace RunningOrders.UI
             {
                 return;
             }
+            if (waypoint.FireDownUntilNext)
+            {
+                var holdField = builder.AddField("Fire", builder.HStack(field =>
+                {
+                    field.AddLabel(waypoint.StatusLabel);
+                    field.Spacer();
+                    field.AddButtonCompact("Finish now", delegate
+                    {
+                        waypoint.SteamWaitSkipped = true;
+                        onWaypointChange(waypoint);
+                    });
+                    field.Spacer(8f);
+                }));
+                AddLabelOnlyTooltip(holdField, "Fire", "This is the last waypoint, so the fire stays down. Add the next waypoint and the fire is " +
+                    "lit again (if Hot again before leaving is on) before the train goes on.\n\nFinish now ends this waypoint with the fire as it is.");
+                return;
+            }
             if (waypoint.RaisingSteam)
             {
                 builder.AddField("Raising steam", builder.HStack(field =>

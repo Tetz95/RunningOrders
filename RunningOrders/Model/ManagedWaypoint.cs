@@ -386,6 +386,9 @@ namespace RunningOrders
         // The train is held here until RFU says the engine has steam to start.
         public bool RaisingSteam => Progress.Step == WaypointStep.FireUp && Progress.FireUpSent && !Progress.SteamWaitSkipped;
 
+        // The last waypoint keeps the fire down until the next waypoint is queued.
+        public bool FireDownUntilNext => Progress.Step == WaypointStep.FireUp && Progress.HoldingForNext && !Progress.SteamWaitSkipped;
+
         public void SetWaitUntilByMinutes(int inputMinutesAfterMidnight, out GameDateTime waitUntilTime)
         {
             GameDateTime currentTime = TimeWeather.Now;
