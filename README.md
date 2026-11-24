@@ -27,7 +27,9 @@ hand brakes, speeds).
   (spotted or not), or everything but the locomotives; with hand brakes, bled air or bottled air as you choose.
 - **How the train stands.** The pose chosen in the picker (Space: which end of the train arrives on the mark, and on
   which side) is kept for every queued waypoint. When picking a waypoint later in the queue, the picker draws the train
-  as it will be by then, after the earlier couplings and cuts.
+  as it will be by then, after the earlier couplings and cuts, and each waypoint in the window says what the train leaves
+  it with. Cars the queue sets out on the way are found again where it sets them out. What can't be known ahead (which
+  car is the nearest when the train gets there) shows as "or more", with the reason.
 - **Stopping or passing.** A waypoint can be passed without stopping, at a speed of your choice; the train is handed on
   to the next waypoint before it would brake.
 - **Refueling** at a nearby coal, water or diesel loader, slot by slot.
@@ -67,7 +69,10 @@ Code layout:
   (`WaypointProgress`, saved with the queue so a reload carries on).
 - `Steps\` - what happens on arrival, one step at a time: start, couple, refuel, halt, cut, speed, wait.
 - `Services\` - the game side of coupling, cutting and refueling; `Services\CutSelection.cs` is the pure part.
-- `Picker\` - the game's waypoint picker: poses, and the train drawn as it will be.
+- `Picker\` - the game's waypoint picker: poses, and the train drawn as it will be (`TrainPrediction`, with
+  `PredictedYard` for the cars the queue moves; `TrainPredictions` keeps the results). Which cars a cut takes comes from
+  `UncouplingService`, for the preview as for the cut itself. `PredictionCheck` logs "Prediction check" when a train
+  leaves a waypoint with other cars than were predicted.
 - `UI\` - the Waypoints window (`WaypointWindow.*.cs`, one file per section), the Routes window and the settings.
 
 Releasing: set the version in `RunningOrders/Properties/AssemblyInfo.cs`, build with

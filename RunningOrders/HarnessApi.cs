@@ -106,7 +106,22 @@ namespace RunningOrders
         public static string Predict(string loco, string index)
         {
             if (!TryLoco(loco, out BaseLocomotive locomotive, out string error)) return error;
-            return TrainPrediction.ForQueueIndex(locomotive, int.Parse(index, CultureInfo.InvariantCulture)).Explain(locomotive);
+            return TrainPredictions.ForQueueIndex(locomotive, int.Parse(index, CultureInfo.InvariantCulture)).Explain(locomotive);
+        }
+
+        // The train each queued waypoint leaves with, how long working them out took, and how the predictions so far held.
+        public static string Predictions(string loco)
+        {
+            if (!TryLoco(loco, out BaseLocomotive locomotive, out string error)) return error;
+            double first = TrainPredictions.Fresh(locomotive), again = TrainPredictions.Fresh(locomotive);
+            int runs = TrainPredictions.Runs;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < 1000; i++) TrainPredictions.ForQueueIndex(locomotive, 99);
+            double kept = watch.Elapsed.TotalMilliseconds / 1000.0;
+            List<TrainPrediction> all = TrainPredictions.For(locomotive);
+            return $"{all.Count - 1} waypoint(s); worked out in {first:0.00}, again {again:0.00} ms, kept {kept:0.0000} ms a look ({TrainPredictions.Runs - runs} more runs); "
+                + $"held {PredictionCheck.Right}, not {PredictionCheck.Wrong} | "
+                + string.Join(" | ", all.Select((p, i) => $"{i}: {p.Describe()}: {string.Join(" ", p.Cars.Select(c => c.DisplayName))}"));
         }
 
         // ---------- Routes (named without spaces in tests) ----------

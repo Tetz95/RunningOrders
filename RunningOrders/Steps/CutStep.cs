@@ -73,68 +73,17 @@ namespace RunningOrders.Steps
             }
 
             bool isPickup = waypoint.PostCouplingCutMode == ManagedWaypoint.PostCoupleCutType.Pickup;
+            List<Car> carsToCut = HasDestination(waypoint) ? uncouplingService.FindCutAfterCoupling(waypoint, carCoupledTo) : [];
 
-            List<Car> carsToCut = [];
-            if (waypoint.WillUncoupleByCount)
+            if (carsToCut.Count == 0)
             {
-                carsToCut = uncouplingService.FindPickupOrDropoffByCount(waypoint, carCoupledTo);
-                if (carsToCut.Count == 0)
+                string because = NothingToCut(waypoint, isPickup);
+                if (because != null)
                 {
-                    Report($"Waypoint for {waypoint.Locomotive.Ident} was configured to perform a post-coupling cut by count with {waypoint.NumberOfCarsToCut} cars to cut, but since no cars can be cut it will remain coupled to all cars.");
+                    Report(because);
                     ModLocator.Loader.Log($"Waypoint was: {waypoint}");
                     return;
                 }
-            }
-            if (waypoint.WillUncoupleByDestination && !string.IsNullOrEmpty(waypoint.UncoupleDestinationId))
-            {
-                carsToCut = isPickup
-                    ? uncouplingService.FindPickupByDestination(waypoint, carCoupledTo) : uncouplingService.FindDropoffByDestination(waypoint, carCoupledTo);
-
-                if (!isPickup && carsToCut.Count == 0)
-                {
-                    Report($"{waypoint.Locomotive.Ident} has no cars to drop off for {DescribeUncoupleDestination(waypoint)}, so it will remain coupled to all cars.");
-                    return;
-                }
-            }
-
-            if (waypoint.WillUncoupleBySpecificCar)
-            {
-                carsToCut = isPickup
-                    ? uncouplingService.FindPickupBySpecificCar(waypoint, carCoupledTo)
-                    : uncouplingService.FindDropoffBySpecificCar(waypoint, carCoupledTo);
-            }
-
-            if (waypoint.WillUncoupleAllExceptLocomotives)
-            {
-                carsToCut = isPickup
-                    ? uncouplingService.FindPickupAllExceptLocomotives(waypoint, carCoupledTo)
-                    : uncouplingService.FindDropoffAllExceptLocomotives(waypoint, carCoupledTo);
-
-                if (carsToCut.Count == 0 && isPickup)
-                {
-                    ModLocator.Loader.Log($"Pickup all except locomotives found zero cars to cut.");
-                    return;
-                }
-            }
-
-            if (waypoint.WillUncoupleByOpsPositionStatus)
-            {
-                carsToCut = isPickup
-                    ? uncouplingService.FindPickupByWaybillStatus(waypoint, carCoupledTo)
-                    : uncouplingService.FindDropoffByWaybillStatus(waypoint, carCoupledTo);
-
-                if (!isPickup && carsToCut.Count == 0)
-                {
-                    Report($"{waypoint.Locomotive.Ident} has no cars to drop off with waybill status {waypoint.MatchOpsPositionStatus}, so it will remain coupled to all cars.");
-                    return;
-                }
-            }
-
-            if (isPickup && carsToCut.Count == 0)
-            {
-                Report($"Waypoint for {waypoint.Locomotive.Ident} was configured to perform a post-coupling cut, but since no cars can be cut it will remain coupled to all cars.");
-                ModLocator.Loader.Log($"Waypoint was: {waypoint}");
-                return;
             }
 
             uncouplingService.PerformCut(carsToCut, waypoint);
@@ -143,46 +92,50 @@ namespace RunningOrders.Steps
         private void ResolveUncouplingOrders(ManagedWaypoint waypoint)
         {
             ModLocator.Loader.Log($"Resolving uncoupling orders for {waypoint.Locomotive.Ident}");
-            List<Car> carsToCut = [];
-            if (waypoint.WillUncoupleByCount && waypoint.NumberOfCarsToCut > 0)
-            {
-                carsToCut = uncouplingService.FindCutByCount(waypoint);
-            }
-
-            if (waypoint.WillUncoupleByDestination && !string.IsNullOrEmpty(waypoint.UncoupleDestinationId))
-            {
-                carsToCut = uncouplingService.FindCutByDestination(waypoint);
-
-                if (carsToCut.Count == 0)
-                {
-                    Report($"{waypoint.Locomotive.Ident} has no cars to cut for {DescribeUncoupleDestination(waypoint)}, so no cars were uncoupled.");
-                    return;
-                }
-            }
-
-            if (waypoint.WillUncoupleBySpecificCar)
-            {
-                carsToCut = uncouplingService.FindCutBySpecificCar(waypoint);
-            }
-
             if (waypoint.WillUncoupleAllExceptLocomotives)
             {
                 uncouplingService.UncoupleAllExceptLocomotives(waypoint);
                 return;
             }
 
-            if (waypoint.WillUncoupleByOpsPositionStatus)
+            List<Car> carsToCut = HasDestination(waypoint) ? uncouplingService.FindCut(waypoint) : [];
+            if (carsToCut.Count == 0 && waypoint.WillUncoupleByDestination && HasDestination(waypoint))
             {
-                carsToCut = uncouplingService.FindCutByWaybillStatus(waypoint);
-
-                if (carsToCut.Count == 0)
-                {
-                    Report($"{waypoint.Locomotive.Ident} has no cars to cut with waybill status {waypoint.MatchOpsPositionStatus}, so no cars were uncoupled.");
-                    return;
-                }
+                Report($"{waypoint.Locomotive.Ident} has no cars to cut for {DescribeUncoupleDestination(waypoint)}, so no cars were uncoupled.");
+                return;
+            }
+            if (carsToCut.Count == 0 && waypoint.WillUncoupleByOpsPositionStatus)
+            {
+                Report($"{waypoint.Locomotive.Ident} has no cars to cut with waybill status {waypoint.MatchOpsPositionStatus}, so no cars were uncoupled.");
+                return;
             }
 
             uncouplingService.PerformCut(carsToCut, waypoint);
+        }
+
+        // A cut by destination with none set cuts nothing.
+        private static bool HasDestination(ManagedWaypoint waypoint) => !waypoint.WillUncoupleByDestination || !string.IsNullOrEmpty(waypoint.UncoupleDestinationId);
+
+        // After a coupling: why there's nothing to cut, when that isn't an error (null when it is).
+        private static string NothingToCut(ManagedWaypoint waypoint, bool isPickup)
+        {
+            if (waypoint.WillUncoupleByCount)
+            {
+                return $"Waypoint for {waypoint.Locomotive.Ident} was configured to perform a post-coupling cut by count with {waypoint.NumberOfCarsToCut} cars to cut, but since no cars can be cut it will remain coupled to all cars.";
+            }
+            if (isPickup)
+            {
+                return $"Waypoint for {waypoint.Locomotive.Ident} was configured to perform a post-coupling cut, but since no cars can be cut it will remain coupled to all cars.";
+            }
+            if (waypoint.WillUncoupleByDestination && HasDestination(waypoint))
+            {
+                return $"{waypoint.Locomotive.Ident} has no cars to drop off for {DescribeUncoupleDestination(waypoint)}, so it will remain coupled to all cars.";
+            }
+            if (waypoint.WillUncoupleByOpsPositionStatus)
+            {
+                return $"{waypoint.Locomotive.Ident} has no cars to drop off with waybill status {waypoint.MatchOpsPositionStatus}, so it will remain coupled to all cars.";
+            }
+            return null;
         }
 
         // To the game's console and the log.

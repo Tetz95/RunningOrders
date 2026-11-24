@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using HarmonyLib;
 using Model;
 using Model.AI;
 using Track;
@@ -21,96 +20,116 @@ namespace RunningOrders
     //
     // Each earlier waypoint is a leg: the end that arrives first is the pose's end where the player chose one, or the
     // leading end of the auto engineer's own route search from where the train stands after the leg before (the same
-    // search the planner runs, given the predicted train's ends and length). A coupling adds the coupled car's whole
-    // cut at that end; cuts follow WaypointQueue's own rules (UncouplingService). What can't be known ahead (the nearest
-    // car to couple to, a cut that takes the uncoupled cars on) leaves the prediction marked approximate.
+    // search the planner runs, given the predicted train's ends and length). A coupling adds the cars coupled to the car,
+    // as the queue leaves them (PredictedYard: cars it sets out on the way are found where it sets them out). Which cars a
+    // cut takes is decided by UncouplingService, the same code as when the train is there.
+    //
+    // What can't be known ahead (which car is the nearest when the train gets there) is kept as "or more" cars, until a
+    // cut settles it: after a set-out of all but the locomotives it doesn't matter what was coupled to. Use
+    // TrainPredictions, which keeps the results.
     internal sealed class TrainPrediction
     {
         // Consist end A to B, as the picker's _consist (A is the locomotive's logical A side).
-        public List<Car> Cars { get; private set; } = [];
+        public List<Car> Cars => _train.Cars;
 
-        public float Length => AutoEngineerPlanner.CalculateTotalLength(Cars);
+        public float Length => _train.Length;
+
+        // Cars it may have beyond these (int.MaxValue: any number).
+        public int MaxExtra { get; private set; }
 
         // Each earlier waypoint's arriving end and how it was decided (for tests: Explain).
-        public List<string> Legs { get; } = [];
+        public List<string> Legs { get; private set; } = [];
 
-        // Why the prediction may be off, one note per guess; empty when every step was known.
-        public List<string> Guesses { get; } = [];
+        // Why the cars may differ, one note per guess; empty when every step was known.
+        public List<string> Guesses { get; private set; } = [];
+
+        // Why the place or the direction may differ.
+        private List<string> _placeGuesses = [];
+
+        public bool Certain => MaxExtra == 0 && Guesses.Count == 0;
 
         public bool Changed { get; private set; }
 
-        // The outer end of the train at consist end A, facing out of the train (toward A), and at end B (toward B).
-        private Location _endA;
-        private Location _endB;
+        private CarString _train;   // First is the train's end A, Last its end B
+
+        private PredictedYard _yard = new();
 
         private readonly IGraphView _graph = Graph.Shared.Current;
 
         private BaseLocomotive _locomotive;
 
-        public static TrainPrediction ForQueueIndex(BaseLocomotive locomotive, int index)
+        private HashSet<string> _workingIds;
+
+        // The predictions for a locomotive's whole queue: [0] is the train now, [i] the train after i waypoints.
+        public static List<TrainPrediction> ForQueue(BaseLocomotive locomotive)
         {
+            List<ManagedWaypoint> queue = ModStateManager.Shared.GetLocoWaypointState(locomotive.id)?.Waypoints ?? [];
             var prediction = new TrainPrediction();
             prediction.Start(locomotive);
-            List<ManagedWaypoint> queue = ModStateManager.Shared.GetLocoWaypointState(locomotive.id)?.Waypoints ?? [];
-            for (int i = 0; i < Math.Min(index, queue.Count); i++)
+            List<TrainPrediction> all = [prediction];
+            string lost = null;
+            for (int i = 0; i < queue.Count; i++)
             {
-                try
+                prediction = prediction.Copy();
+                if (lost == null)
                 {
-                    prediction.Apply(queue[i]);
+                    try
+                    {
+                        prediction.Apply(queue[i], i);
+                        if (!prediction.Cars.Contains(locomotive))
+                        {
+                            lost = $"lost the locomotive at waypoint {i + 1}, so only the locomotive is shown";
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        ModLocator.Loader.LogDebug($"Train prediction for {locomotive.Ident} stopped at waypoint {i}: {e}");
+                        lost = $"couldn't follow the queue past waypoint {i + 1}, so only the locomotive is shown";
+                    }
+                    if (lost != null)
+                    {
+                        prediction.EnginesOnly(lost);
+                    }
                 }
-                catch (Exception e)
-                {
-                    ModLocator.Loader.LogDebug($"Train prediction for {locomotive.Ident} stopped at waypoint {i}: {e.Message}");
-                    prediction.EnginesOnly("couldn't follow the queue past waypoint " + (i + 1) + ", so only the locomotive is shown");
-                    return prediction;
-                }
-                if (!prediction.Cars.Contains(locomotive))
-                {
-                    prediction.EnginesOnly("lost the locomotive at waypoint " + (i + 1) + ", so only the locomotive is shown");
-                    return prediction;
-                }
+                all.Add(prediction);
             }
-            return prediction;
+            return all;
+        }
+
+        private TrainPrediction Copy()
+        {
+            var copy = (TrainPrediction)MemberwiseClone();
+            copy.Legs = [.. Legs];
+            copy.Guesses = [.. Guesses];
+            copy._placeGuesses = [.. _placeGuesses];
+            copy._yard = _yard.Copy();
+            return copy;
         }
 
         private void Start(BaseLocomotive locomotive)
         {
             _locomotive = locomotive;
-            Cars = [.. locomotive.EnumerateCoupled(Car.LogicalEnd.A)];
-            Car first = Cars[0], last = Cars[Cars.Count - 1];
-            _endA = OutwardEnd(first, Cars.Count > 1 ? Cars[1] : null);
-            _endB = OutwardEnd(last, Cars.Count > 1 ? Cars[Cars.Count - 2] : null);
+            _workingIds = ModLocator.ServiceProvider.GetService<ICarService>()?.GetWorkingLocomotiveIds(locomotive);
+            _train = CarString.Live(locomotive);
+            _yard.Put(_train);
         }
 
-        // A car's end that isn't coupled to its neighbour in the train, as a location facing out of the train.
-        private static Location OutwardEnd(Car car, Car neighbour)
-        {
-            Car.LogicalEnd outer = neighbour != null && car.CoupledTo(Car.LogicalEnd.A) == neighbour ? Car.LogicalEnd.B : Car.LogicalEnd.A;
-            // A car's LocationA and LocationB both face toward its end A.
-            return outer == Car.LogicalEnd.A ? car.LocationA : car.LocationB.Flipped();
-        }
-
-        private void Apply(ManagedWaypoint wp)
+        private void Apply(ManagedWaypoint wp, int index)
         {
             ConsistEnd arriving = ArriveAt(wp);
+            bool cutDone = wp.Progress.Step > WaypointStep.Cut;   // the waypoint being worked now
 
-            Car coupleTo = CouplingTarget(wp);
-            if (coupleTo == null && wp.WillSeekNearestCoupling && !wp.IsCoupling)
+            if (wp.HasAnyCouplingOrders)
             {
-                // The car standing there now, found as CouplingService will look for it; with a pick-up by count the
-                // count comes from its cut (Couple).
-                coupleTo = NearestCar(wp, arriving);
+                Couple(wp, arriving, index, cutDone);
             }
-            if (coupleTo != null && !Cars.Contains(coupleTo))
+            else if (wp.HasAnyUncouplingOrders && !cutDone)
             {
-                Couple(coupleTo, arriving, wp);
-            }
-
-            if (wp.HasAnyUncouplingOrders && !wp.HasAnyCouplingOrders)
-            {
-                Cut(wp, arriving);
+                PlainCut(wp, arriving, index);
             }
         }
+
+        // ---------- Getting there ----------
 
         // Moves the predicted train to the waypoint and returns the end that arrives on the mark.
         private ConsistEnd ArriveAt(ManagedWaypoint wp)
@@ -131,7 +150,7 @@ namespace RunningOrders
             // A coupling without a pose goes out as the game's coupling order: the train comes up to the car's coupler from
             // outside the car. The route search doesn't see cars, so the shortest route can come in through the car
             // and put the train on its far side with the wrong end leading; take the route from outside if there is one.
-            if (CarToCouple(wp) is Car car && !Cars.Contains(car) && TryRouteFromOutside(mark, car, out ConsistEnd outsideEnd, out Location outsideBody))
+            if (NamedCar(wp) is Car car && !Cars.Contains(car) && TryRouteFromOutside(mark, car, out ConsistEnd outsideEnd, out Location outsideBody))
             {
                 StandAt(outsideEnd, outsideBody);
                 Legs.Add($"{DescribeMark(wp)}: end {outsideEnd} arrives (coupling from outside the car)");
@@ -147,15 +166,15 @@ namespace RunningOrders
             }
 
             // No route found: the end nearer the mark, standing where it is.
-            Guesses.Add("no route found to " + DescribeMark(wp));
+            _placeGuesses.Add("no route found to " + DescribeMark(wp));
             Vector3 markPosition = _graph.GetPosition(mark);
-            ConsistEnd nearer = (_graph.GetPosition(_endA) - markPosition).sqrMagnitude <= (_graph.GetPosition(_endB) - markPosition).sqrMagnitude ? ConsistEnd.A : ConsistEnd.B;
+            ConsistEnd nearer = (_graph.GetPosition(_train.First) - markPosition).sqrMagnitude <= (_graph.GetPosition(_train.Last) - markPosition).sqrMagnitude ? ConsistEnd.A : ConsistEnd.B;
             Legs.Add($"{DescribeMark(wp)}: end {nearer} arrives (nearer end, no route)");
             return nearer;
         }
 
         // Where the predicted train stands: halfway between its outer ends.
-        public Vector3 Position => (_graph.GetPosition(_endA) + _graph.GetPosition(_endB)) * 0.5f;
+        public Vector3 Position => (_graph.GetPosition(_train.First) + _graph.GetPosition(_train.Last)) * 0.5f;
 
         // The auto engineer's route from where the predicted train stands to the mark (for the picker's natural pose).
         public bool TryRouteTo(Location mark, out List<RouteSearch.Step> route) => TryRoute(mark, out route);
@@ -166,7 +185,7 @@ namespace RunningOrders
         {
             best = null;
             float bestDistance = float.MaxValue;
-            foreach ((Location start, ConsistEnd startEnd) in new[] { (_endA, ConsistEnd.A), (_endB, ConsistEnd.B) })
+            foreach ((Location start, ConsistEnd startEnd) in new[] { (_train.First, ConsistEnd.A), (_train.Last, ConsistEnd.B) })
             {
                 var steps = new List<RouteSearch.Step>();
                 if (_graph.FindRoute(start, mark, HeuristicCosts.AutoEngineer, steps, out RouteSearch.Metrics metrics,
@@ -179,16 +198,6 @@ namespace RunningOrders
             return best != null;
         }
 
-        // The car a waypoint couples to, if it names one (CouplingTarget without its guesses).
-        private static Car CarToCouple(ManagedWaypoint wp)
-        {
-            if (wp.IsCoupling && wp.TryResolveCoupleToCar(out Car car))
-            {
-                return car;
-            }
-            return wp.WillSeekSpecificCarCoupling ? wp.CouplingSearchResultCar : null;
-        }
-
         // The shorter of the routes from the train's two ends that comes up to the mark from the side away from the car,
         // with the end that leads in and the mark facing into the train's body.
         private bool TryRouteFromOutside(Location mark, Car car, out ConsistEnd arriving, out Location intoBody)
@@ -197,14 +206,15 @@ namespace RunningOrders
             intoBody = default;
             Location towardA = WaypointPose.IntoBody(mark, TrackSegment.End.A);
             Location towardB = WaypointPose.IntoBody(mark, TrackSegment.End.B);
-            Vector3 carMiddle = Middle(car);
+            CarString its = _yard.Of(car);
+            Vector3 carMiddle = _yard.Moved(car.id) ? (_graph.GetPosition(its.First) + _graph.GetPosition(its.Last)) * 0.5f : Middle(car);
             Vector3 probeA = _graph.GetPosition(_graph.LocationByMoving(towardA, 5f, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true));
             Vector3 probeB = _graph.GetPosition(_graph.LocationByMoving(towardB, 5f, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true));
             Location awayFromCar = (probeA - carMiddle).sqrMagnitude >= (probeB - carMiddle).sqrMagnitude ? towardA : towardB;
 
             float bestDistance = float.MaxValue;
             bool found = false;
-            foreach ((Location start, ConsistEnd startEnd) in new[] { (_endA, ConsistEnd.A), (_endB, ConsistEnd.B) })
+            foreach ((Location start, ConsistEnd startEnd) in new[] { (_train.First, ConsistEnd.A), (_train.Last, ConsistEnd.B) })
             {
                 var steps = new List<RouteSearch.Step>();
                 if (_graph.FindRoute(start, mark, HeuristicCosts.AutoEngineer, steps, out RouteSearch.Metrics metrics,
@@ -245,39 +255,146 @@ namespace RunningOrders
         {
             Location lead = intoBody.Flipped();
             Location tail = _graph.LocationByMoving(intoBody, Length, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true);
-            if (arriving == ConsistEnd.A)
-            {
-                _endA = lead;
-                _endB = tail;
-            }
-            else
-            {
-                _endA = tail;
-                _endB = lead;
-            }
+            SetTrain(Cars, arriving == ConsistEnd.A ? lead : tail, arriving == ConsistEnd.A ? tail : lead);
             Changed = true;
         }
 
-        private Car CouplingTarget(ManagedWaypoint wp)
+        private void SetTrain(List<Car> cars, Location endA, Location endB)
+        {
+            _yard.Remove(_train);
+            _train = new CarString(cars, endA, endB);
+            _yard.Put(_train);
+        }
+
+        // ---------- Coupling ----------
+
+        // The car a waypoint couples to, if it names one.
+        private static Car NamedCar(ManagedWaypoint wp)
         {
             if (wp.IsCoupling && wp.TryResolveCoupleToCar(out Car car))
             {
                 return car;
             }
-            if (wp.WillSeekSpecificCarCoupling)
-            {
-                return wp.CouplingSearchResultCar;
-            }
-            if (wp.WillSeekNearestCoupling)
-            {
-                Guesses.Add("couples to the nearest car at " + DescribeMark(wp));
-            }
-            return null;
+            return wp.WillSeekSpecificCarCoupling ? wp.CouplingSearchResultCar : null;
         }
 
-        // The nearest car for a "couple to nearest" waypoint, searched as CouplingService.FindNearbyCoupling does but from
-        // the predicted train: along the track ahead of its arriving end, or within the search radius of the mark.
-        private Car NearestCar(ManagedWaypoint wp, ConsistEnd arriving)
+        private void Couple(ManagedWaypoint wp, ConsistEnd arriving, int index, bool cutDone)
+        {
+            Car car = NamedCar(wp);
+            CarString target = null;
+            bool searches = car == null && wp.WillSeekNearestCoupling && !wp.IsCoupling;
+            if (car != null)
+            {
+                target = _yard.Of(car);
+            }
+            else if (searches)
+            {
+                target = Nearest(wp, arriving);
+            }
+
+            if (target == _train || (car != null && Cars.Contains(car)))
+            {
+                // Coupled already (the waypoint being worked now): the cut is still to come.
+                if (!cutDone && wp.HasAnyPostCouplingCutOrders)
+                {
+                    List<Car> fromArriving = From(arriving);
+                    CutAfter(wp, fromArriving, car == null ? -1 : fromArriving.IndexOf(car), arriving, index);
+                }
+                return;
+            }
+
+            if (target == null)
+            {
+                CoupleUnknown(wp, arriving, index, cutDone);
+                return;
+            }
+
+            if (searches)
+            {
+                if (_yard.Strings.Contains(target))
+                {
+                    // Cars this queue sets out: they'll be there.
+                    Legs.Add($"{DescribeMark(wp)}: couples to the cars set out earlier ({target.Cars[0].DisplayName}...)");
+                }
+                else
+                {
+                    Guesses.Add($"the nearest car at {DescribeMark(wp, index)} is now {NearCar(target, arriving).DisplayName}");
+                }
+            }
+            Join(target, car, arriving, searches, out List<Car> fromFarEnd, out int coupled);
+            if (target.MayHoldMore)
+            {
+                MaxExtra = int.MaxValue;
+                Guesses.Add($"the cars coupled to at {DescribeMark(wp, index)} may be more");
+            }
+            if (!cutDone && wp.HasAnyPostCouplingCutOrders)
+            {
+                CutAfter(wp, fromFarEnd, coupled, arriving, index);
+            }
+        }
+
+        // The end of a string that the train couples to: the one nearer the train's arriving end.
+        private bool NearIsFirst(CarString target, ConsistEnd arriving)
+        {
+            Vector3 at = _graph.GetPosition(arriving == ConsistEnd.A ? _train.First : _train.Last);
+            return (_graph.GetPosition(target.First) - at).sqrMagnitude <= (_graph.GetPosition(target.Last) - at).sqrMagnitude;
+        }
+
+        private Car NearCar(CarString target, ConsistEnd arriving) => NearIsFirst(target, arriving) ? target.Cars[0] : target.Cars[target.Cars.Count - 1];
+
+        // The whole string of cars the car stands in joins at the arriving end (they're coupled together).
+        // fromFarEnd: the joined train from the far end of the cars coupled to; coupled: the car coupled to in it.
+        private void Join(CarString target, Car car, ConsistEnd arriving, bool moveUp, out List<Car> fromFarEnd, out int coupled)
+        {
+            bool nearFirst = target.Cars.Count > 1 && car == target.Cars[0] ? true
+                : target.Cars.Count > 1 && car == target.Cars[target.Cars.Count - 1] ? false
+                : NearIsFirst(target, arriving);
+            List<Car> farFirst = nearFirst ? Enumerable.Reverse(target.Cars).ToList() : [.. target.Cars];
+            Location far = nearFirst ? target.Last : target.First;
+            if (moveUp)
+            {
+                // The train goes on from the mark to the car.
+                StandAt(arriving, nearFirst ? target.First : target.Last);
+            }
+            fromFarEnd = [.. farFirst, .. From(arriving)];
+            coupled = car != null && farFirst.Contains(car) ? farFirst.IndexOf(car) : farFirst.Count - 1;
+            _yard.Remove(target);
+            if (arriving == ConsistEnd.A)
+            {
+                SetTrain([.. farFirst, .. Cars], far, _train.Last);
+            }
+            else
+            {
+                SetTrain([.. Cars, .. Enumerable.Reverse(farFirst)], _train.First, far);
+            }
+            Changed = true;
+        }
+
+        // No car to couple to is known now: a set-out leaves the train the same whatever it is.
+        private void CoupleUnknown(ManagedWaypoint wp, ConsistEnd arriving, int index, bool cutDone)
+        {
+            string where = DescribeMark(wp, index);
+            if (cutDone || !wp.WillPostCoupleCutDropoff)
+            {
+                int most = wp.WillPostCoupleCutPickup && wp.WillUncoupleByCount ? Math.Max(0, wp.NumberOfCarsToCut) : int.MaxValue;
+                MaxExtra = most == int.MaxValue || MaxExtra == int.MaxValue ? int.MaxValue : MaxExtra + most;
+                Guesses.Add($"no car to couple to at {where} yet");
+                return;
+            }
+            int before = Cars.Count;
+            CutAfter(wp, From(arriving), -1, arriving, index, unknownBeyond: true);
+            if (Cars.Count == before)
+            {
+                // Nothing to set out: it stays coupled.
+                MaxExtra = int.MaxValue;
+                Guesses.Add($"no car to couple to at {where} yet");
+            }
+        }
+
+        // The car (string) a "couple to nearest" waypoint will find, searched as CouplingService does but from the
+        // predicted train and among the cars as the queue leaves them: along the track ahead of its arriving end, or within
+        // the search radius of the mark.
+        private CarString Nearest(ManagedWaypoint wp, ConsistEnd arriving)
         {
             var trains = ModLocator.ServiceProvider.GetService<TrainControllerWrapper>();
             if (trains == null)
@@ -289,15 +406,21 @@ namespace RunningOrders
             if (wp.OnlySeekNearbyOnTrackAhead)
             {
                 // The arriving end faces out of the train (StandAt), so moving from it runs ahead of the train.
-                Location ahead = arriving == ConsistEnd.A ? _endA : _endB;
+                Location ahead = arriving == ConsistEnd.A ? _train.First : _train.Last;
                 for (float moved = averageCarLength / 2; moved <= searchRadius; moved += averageCarLength / 2)
                 {
                     try
                     {
-                        Car car = trains.CheckForCarAtLocation(_graph.LocationByMoving(ahead, moved, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true));
-                        if (car != null && !Cars.Contains(car))
+                        Location at = _graph.LocationByMoving(ahead, moved, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true);
+                        CarString left = _yard.At(_graph.GetPosition(at), _graph, _train);
+                        if (left != null)
                         {
-                            return car;
+                            return left;
+                        }
+                        Car car = trains.CheckForCarAtLocation(at);
+                        if (car != null && !_yard.Moved(car.id))
+                        {
+                            return CarString.Live(car);
                         }
                     }
                     catch (Exception)
@@ -308,259 +431,228 @@ namespace RunningOrders
                 return null;
             }
 
-            Car best = null;
-            float bestDistance = float.MaxValue;
+            CarString best = null;
+            float bestDistance = searchRadius;
+            Vector3 markPosition = _graph.GetPosition(wp.Location);
+            foreach (CarString left in _yard.Strings)
+            {
+                if (left != _train)
+                {
+                    Consider(left, left.First, left.Last);
+                }
+            }
             foreach (string carId in trains.GetNearbyCarIds(wp.Location, searchRadius))
             {
-                if (!trains.TryGetCarForId(carId, out Car car) || Cars.Contains(car) || (car.EndGearA.IsCoupled && car.EndGearB.IsCoupled))
+                if (trains.TryGetCarForId(carId, out Car car) && !_yard.Moved(carId) && !(car.EndGearA.IsCoupled && car.EndGearB.IsCoupled))
                 {
-                    continue;
-                }
-                Vector3 markPosition = _graph.GetPosition(wp.Location);
-                float distance = Mathf.Min((_graph.GetPosition(car.LocationA) - markPosition).magnitude, (_graph.GetPosition(car.LocationB) - markPosition).magnitude);
-                if (distance < bestDistance)
-                {
-                    best = car;
-                    bestDistance = distance;
+                    Consider(null, car.LocationA, car.LocationB, car);
                 }
             }
             return best;
+
+            void Consider(CarString s, Location a, Location b, Car car = null)
+            {
+                float distance = Mathf.Min((_graph.GetPosition(a) - markPosition).magnitude, (_graph.GetPosition(b) - markPosition).magnitude);
+                if (distance < bestDistance)
+                {
+                    best = s ?? CarString.Live(car);
+                    bestDistance = distance;
+                }
+            }
         }
 
-        // The coupled car's whole cut joins at the arriving end; then any cut after the coupling.
-        private void Couple(Car coupleTo, ConsistEnd arriving, ManagedWaypoint wp)
+        // ---------- Cutting ----------
+
+        // A pick-up or set-out after a coupling. fromFarEnd is the joined train, or with unknownBeyond the train from the
+        // end that couples, cars not known ahead beyond it.
+        private void CutAfter(ManagedWaypoint wp, List<Car> fromFarEnd, int coupled, ConsistEnd arriving, int index, bool unknownBeyond = false)
         {
-            // The whole string of cars the coupled car stands in joins (they're coupled together), nearest the train
-            // first. Ordered by which end of the string is nearer the train's end where the train comes up to it.
-            Location atEnd = arriving == ConsistEnd.A ? _endA : _endB;
-            Vector3 trainEnd = _graph.GetPosition(atEnd);
-            List<Car> cut = [.. coupleTo.EnumerateCoupled(Car.LogicalEnd.A)];
-            if (cut.Count > 1 && (Middle(cut[0]) - trainEnd).sqrMagnitude > (Middle(cut[cut.Count - 1]) - trainEnd).sqrMagnitude)
+            if (wp.UncouplingMode == ManagedWaypoint.UncoupleMode.None || !HasDestination(wp))
             {
-                cut.Reverse();
+                return;
             }
+            List<Car> cut = Decide(wp, index, service => service.CutAfterCoupling(wp, fromFarEnd, coupled));
+            Split(wp, cut, arriving, index, unknownBeyond);
+        }
 
-            if (wp.WillPostCoupleCutPickup && wp.WillUncoupleByCount)
+        // A cut at a waypoint without a coupling.
+        private void PlainCut(ManagedWaypoint wp, ConsistEnd arriving, int index)
+        {
+            if (wp.WillUncoupleAllExceptLocomotives)
             {
-                // Keep the cars of the cut nearest the train; the rest stay where they are.
-                cut = cut.Take(Mathf.Clamp(wp.NumberOfCarsToCut, 0, cut.Count)).ToList();
+                // Only the locomotives stay: the driven locomotive's own group (it, its tenders and its multiple-unit
+                // partners), standing where they stand in the train now. A locomotive coupled on in the queue isn't in
+                // multiple unit with it, so it's in tow and goes with the cars, as it will in the cut.
+                TrimToEngines();
+                return;
             }
-            else if (wp.WillPostCoupleCutPickup && wp.WillUncoupleAllExceptLocomotives)
+            if (!HasDestination(wp))
             {
-                // The cars of the cut up to its first locomotive or tender (FindPickupAllExceptLocomotives).
-                int firstEngine = cut.FindIndex(IsEngine);
-                if (firstEngine >= 0)
-                {
-                    cut = cut.Take(firstEngine).ToList();
-                }
+                return;
             }
-            else if (wp.WillPostCoupleCutDropoff && wp.WillUncoupleByCount)
-            {
-                // The cut stays, with the train's own cars next to it.
-                int leave = Mathf.Clamp(wp.NumberOfCarsToCut, 0, Cars.Count - 1);
-                RemoveFromEnd(arriving, leave);
-                cut = [];
-            }
-            else if (wp.WillPostCoupleCutDropoff && wp.WillUncoupleAllExceptLocomotives)
-            {
-                // The cut stays with every car on the arriving side of the locomotives
-                // (FindDropoffAllExceptLocomotives); cars beyond them, if any, stay on.
-                (int first, int last) = EngineGroup();
-                if (first >= 0)
-                {
-                    RemoveFromEndUnguarded(arriving, arriving == ConsistEnd.A ? first : Cars.Count - 1 - last);
-                }
-                cut = [];
-            }
-            else if (wp.HasAnyPostCouplingCutOrders)
-            {
-                Guesses.Add("a pick-up or set-out after coupling at " + DescribeMark(wp) + " that isn't by count");
-            }
+            // "Nearest to the waypoint" is the end that arrived on it.
+            ConsistEnd countFrom = wp.CountUncoupledFromNearestToWaypoint ? arriving : arriving.Flipped();
+            List<Car> cut = Decide(wp, index, service => service.PlainCut(wp, From(countFrom)));
+            Split(wp, cut, arriving, index, false);
+        }
 
+        private static bool HasDestination(ManagedWaypoint wp) => !wp.WillUncoupleByDestination || !string.IsNullOrEmpty(wp.UncoupleDestinationId);
+
+        private List<Car> Decide(ManagedWaypoint wp, int index, Func<UncouplingService, List<Car>> decide)
+        {
+            var service = ModLocator.ServiceProvider.GetService<UncouplingService>();
+            try
+            {
+                List<Car> cut = decide(service);
+                if (cut.Count > 0 && ModLocator.Settings.PreventTenderUncoupling)
+                {
+                    cut = ModLocator.ServiceProvider.GetService<ICarService>().FilterAnySplitLocoTenderPairs([.. cut]);
+                }
+                if (wp.WillUncoupleByDestination)
+                {
+                    Guesses.Add($"cars by destination at {DescribeMark(wp, index)}, by today's waybills");
+                }
+                else if (wp.WillUncoupleByOpsPositionStatus)
+                {
+                    Guesses.Add($"cars by waybill status at {DescribeMark(wp, index)}, as they are now");
+                }
+                return cut;
+            }
+            catch (Exception e)
+            {
+                Guesses.Add($"the cut at {DescribeMark(wp, index)} ({e.Message})");
+                return [];
+            }
+        }
+
+        // Cuts those cars (a run at one end of the train) off. The part with the locomotive is the train; the rest stays.
+        private void Split(ManagedWaypoint wp, List<Car> cut, ConsistEnd arriving, int index, bool unknownBeyond)
+        {
             if (cut.Count == 0)
             {
                 return;
             }
-            Car far = cut[cut.Count - 1];
-            Location farOutward = OutwardEnd(far, cut.Count > 1 ? cut[cut.Count - 2] : Cars[arriving == ConsistEnd.A ? 0 : Cars.Count - 1]);
-            if (arriving == ConsistEnd.A)
+            HashSet<Car> off = [.. cut];
+            int count = Cars.Count(off.Contains);
+            bool atA = off.Contains(Cars[0]);
+            if (count != cut.Count || count >= Cars.Count || (atA ? Cars.Take(count) : Cars.Skip(Cars.Count - count)).Any(c => !off.Contains(c)))
             {
-                cut.Reverse();
-                Cars = [.. cut, .. Cars];
-                _endA = farOutward;
+                // The cut can't be made as it stands (UncouplingService.PerformCut reports it then).
+                Guesses.Add($"the cut at {DescribeMark(wp, index)} can't be made");
+                return;
+            }
+            int keepFirst, keepLast;
+            if (off.Contains(_locomotive))
+            {
+                (keepFirst, keepLast) = atA ? (0, count - 1) : (Cars.Count - count, Cars.Count - 1);
             }
             else
             {
-                Cars = [.. Cars, .. cut];
-                _endB = farOutward;
+                (keepFirst, keepLast) = atA ? (count, Cars.Count - 1) : (0, Cars.Count - count - 1);
+            }
+            bool cutAtArriving = (keepFirst > 0) == (arriving == ConsistEnd.A);
+            Keep(keepFirst, keepLast, (unknownBeyond || MaxExtra > 0) && cutAtArriving);
+            if (MaxExtra > 0 && cutAtArriving && (wp.WillUncoupleAllExceptLocomotives || unknownBeyond))
+            {
+                // Whatever was coupled on at that end went with the cut.
+                Settled();
+            }
+            else if (MaxExtra > 0)
+            {
+                Guesses.Add($"the cut at {DescribeMark(wp, index)} is counted on cars that aren't known yet");
+            }
+        }
+
+        // Only these cars stay in the train; what's beyond them on either side stays where it stands.
+        private void Keep(int first, int last, bool restMayHoldMore)
+        {
+            List<Car> cars = Cars;
+            Location endA = _train.First, endB = _train.Last;
+            if (first == 0 && last == cars.Count - 1)
+            {
+                return;
+            }
+            List<Car> left = cars.GetRange(0, first), right = cars.GetRange(last + 1, cars.Count - last - 1);
+            Location newA = endA, newB = endB;
+            List<CarString> standing = [];
+            if (left.Count > 0)
+            {
+                Location inside = Inward(endA, left);
+                standing.Add(new CarString(left, endA, inside, restMayHoldMore));
+                newA = inside.Flipped();
+            }
+            if (right.Count > 0)
+            {
+                Location inside = Inward(endB, right);
+                standing.Add(new CarString(right, inside, endB, restMayHoldMore));
+                newB = inside.Flipped();
+            }
+            SetTrain(cars.GetRange(first, last - first + 1), newA, newB);
+            foreach (CarString s in standing)
+            {
+                _yard.Put(s);
             }
             Changed = true;
         }
 
-        // A cut at a waypoint without a coupling, as UncouplingService picks it.
-        private void Cut(ManagedWaypoint wp, ConsistEnd arriving)
-        {
-            if (wp.TakeUncoupledCarsAsActiveCut)
-            {
-                Guesses.Add("the train takes the uncoupled cars on at " + DescribeMark(wp));
-                return;
-            }
-            // "Nearest to the waypoint" is the end that arrived on it.
-            ConsistEnd countFrom = wp.CountUncoupledFromNearestToWaypoint ? arriving : Opposite(arriving);
-            List<Car> fromEnd = countFrom == ConsistEnd.A ? [.. Cars] : Enumerable.Reverse(Cars).ToList();
-
-            List<Car> toCut;
-            if (wp.WillUncoupleByCount)
-            {
-                toCut = fromEnd.Take(wp.NumberOfCarsToCut).ToList();
-            }
-            else if (wp.WillUncoupleBySpecificCar && wp.UncouplingSearchResultCar is Car car && Cars.Contains(car))
-            {
-                // From the car toward the end counted from (UncouplingService.FindCutBySpecificCar).
-                int at = fromEnd.IndexOf(car);
-                toCut = fromEnd.Take(wp.ExcludeMatchingCarsFromCut ? at : at + 1).ToList();
-            }
-            else if (wp.WillUncoupleAllExceptLocomotives)
-            {
-                // Only the locomotives stay: the driven locomotive's own group (it and its tenders and coupled
-                // locomotives), standing where they stand in the train now.
-                TrimToEngines();
-                return;
-            }
-            else if (wp.WillUncoupleByDestination && TryDestinationCut(wp, fromEnd, out toCut))
-            {
-                Guesses.Add("cars set out by destination at " + DescribeMark(wp) + " (by today's waybills)");
-            }
-            else
-            {
-                Guesses.Add("the cut at " + DescribeMark(wp));
-                return;
-            }
-            // The locomotive stays with the train.
-            int keep = toCut.FindIndex(c => c is BaseLocomotive);
-            if (keep >= 0)
-            {
-                toCut = toCut.Take(keep).ToList();
-            }
-            RemoveFromEnd(countFrom, toCut.Count);
-        }
-
-        // The same block of cars UncouplingService cuts for a destination, from today's waybills.
-        private static bool TryDestinationCut(ManagedWaypoint wp, List<Car> fromEnd, out List<Car> toCut)
-        {
-            toCut = [];
-            var service = ModLocator.ServiceProvider.GetService<UncouplingService>();
-            var predicate = AccessTools.Method(typeof(UncouplingService), "GetDestinationPredicate")?.Invoke(service, [wp]) as Func<Car, bool>;
-            var block = AccessTools.Method(typeof(UncouplingService), "FindMatchingCarBlock");
-            if (predicate == null || block == null || !fromEnd.Any(predicate))
-            {
-                return false;
-            }
-            toCut = (List<Car>)block.Invoke(service, [fromEnd, predicate, wp.ExcludeMatchingCarsFromCut]);
-            return true;
-        }
-
-        private static bool IsEngine(Car car) => car is BaseLocomotive || car.CarType.IsTender;
-
-        // Cars are only ever taken off up to the first locomotive or tender from that end: the train never loses its
-        // engine, whatever an order counts (a set-out after coupling counts from the end the train came in on, which can
-        // be the locomotive's end).
-        private void RemoveFromEnd(ConsistEnd end, int count)
-        {
-            List<Car> fromEnd = end == ConsistEnd.A ? Cars : Enumerable.Reverse(Cars).ToList();
-            int firstEngine = fromEnd.FindIndex(IsEngine);
-            if (firstEngine >= 0)
-            {
-                count = Math.Min(count, firstEngine);
-            }
-            RemoveFromEndUnguarded(end, count);
-        }
-
-        // The driven locomotive's group: the run of locomotives working the train around it (it, its tenders and its
-        // multiple-unit partners, as UncouplingService keeps them). A locomotive coupled on in the queue isn't in
-        // multiple unit with it, so it's in tow and goes with the cars, as it will in the cut.
-        private (int first, int last) EngineGroup()
-        {
-            int at = Cars.IndexOf(_locomotive);
-            if (at < 0)
-            {
-                return (-1, -1);
-            }
-            HashSet<string> working = WorkingIds();
-            bool Kept(Car car) => working != null ? working.Contains(car.id) : IsEngine(car);
-            int first = at, last = at;
-            while (first > 0 && Kept(Cars[first - 1])) first--;
-            while (last < Cars.Count - 1 && Kept(Cars[last + 1])) last++;
-            return (first, last);
-        }
-
-        private HashSet<string> _workingIds;
-
-        // The locomotives working the train now (null if the car service isn't there: then every engine counts).
-        private HashSet<string> WorkingIds() =>
-            _workingIds ??= ModLocator.ServiceProvider.GetService<ICarService>()?.GetWorkingLocomotiveIds(_locomotive);
+        // From an outer end in along the train by the length of these cars, facing on inward.
+        private Location Inward(Location outer, List<Car> cars) =>
+            _graph.LocationByMoving(outer.Flipped(), AutoEngineerPlanner.CalculateTotalLength(cars), checkSwitchAgainstMovement: false, stopAtEndOfTrack: true);
 
         // Only the driven locomotive's group stays, where it stands in the predicted train.
         private void TrimToEngines()
         {
-            (int first, int last) = EngineGroup();
-            if (first < 0)
+            int at = Cars.IndexOf(_locomotive);
+            if (at < 0)
             {
                 return;
             }
-            int after = Cars.Count - 1 - last;
-            RemoveFromEndUnguarded(ConsistEnd.B, after);
-            RemoveFromEndUnguarded(ConsistEnd.A, first);
+            (int first, int last) = CutSelection.KeptBlock(Cars, at, car => _workingIds != null ? _workingIds.Contains(car.id) : IsEngine(car));
+            Keep(first, last, MaxExtra > 0);
+            Settled();
+            Changed = true;
         }
+
+        // The train's cars are known again, whatever it was coupled to before.
+        private void Settled()
+        {
+            MaxExtra = 0;
+            Guesses.Clear();
+        }
+
+        private static bool IsEngine(Car car) => car is BaseLocomotive || car.CarType.IsTender;
 
         // The fallback when the queue can't be followed: just the locomotive's group, so the picker still shows which
         // way it faces. Where the prediction still has it, it stays where it stands; otherwise its group from the train
         // as it is now, at the predicted train's end A.
-        public void EnginesOnly(string why)
+        private void EnginesOnly(string why)
         {
-            Guesses.Add(why);
             if (Cars.Contains(_locomotive))
             {
                 TrimToEngines();
-                Changed = true;
-                return;
-            }
-            List<Car> train = [.. _locomotive.EnumerateCoupled(Car.LogicalEnd.A)];
-            int at = train.IndexOf(_locomotive), first = at, last = at;
-            while (first > 0 && IsEngine(train[first - 1])) first--;
-            while (last < train.Count - 1 && IsEngine(train[last + 1])) last++;
-            Cars = train.Skip(first).Take(last - first + 1).ToList();
-            _endB = _graph.LocationByMoving(_endA.Flipped(), Length, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true);
-            Changed = true;
-        }
-
-        private void RemoveFromEndUnguarded(ConsistEnd end, int count)
-        {
-            count = Mathf.Clamp(count, 0, Cars.Count - 1);
-            if (count == 0)
-            {
-                return;
-            }
-            List<Car> removed = end == ConsistEnd.A ? Cars.Take(count).ToList() : Cars.Skip(Cars.Count - count).ToList();
-            float removedLength = AutoEngineerPlanner.CalculateTotalLength(removed);
-            Cars = end == ConsistEnd.A ? Cars.Skip(count).ToList() : Cars.Take(Cars.Count - count).ToList();
-            // The new end, moved in along the train by what was cut, still facing out.
-            if (end == ConsistEnd.A)
-            {
-                _endA = _graph.LocationByMoving(_endA.Flipped(), removedLength, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true).Flipped();
             }
             else
             {
-                _endB = _graph.LocationByMoving(_endB.Flipped(), removedLength, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true).Flipped();
+                List<Car> train = [.. _locomotive.EnumerateCoupled(Car.LogicalEnd.A)];
+                (int first, int last) = CutSelection.KeptBlock(train, train.IndexOf(_locomotive), IsEngine);
+                List<Car> cars = train.GetRange(first, last - first + 1);
+                Location endB = _graph.LocationByMoving(_train.First.Flipped(), AutoEngineerPlanner.CalculateTotalLength(cars), checkSwitchAgainstMovement: false, stopAtEndOfTrack: true);
+                SetTrain(cars, _train.First, endB);
             }
+            MaxExtra = int.MaxValue;
+            Guesses.Add(why);
             Changed = true;
         }
 
+        private List<Car> From(ConsistEnd end) => end == ConsistEnd.A ? [.. Cars] : Enumerable.Reverse(Cars).ToList();
+
         private Vector3 Middle(Car car) => (_graph.GetPosition(car.LocationA) + _graph.GetPosition(car.LocationB)) / 2f;
 
-        private static ConsistEnd Opposite(ConsistEnd end) => end == ConsistEnd.A ? ConsistEnd.B : ConsistEnd.A;
-
         private static string DescribeMark(ManagedWaypoint wp) => string.IsNullOrEmpty(wp.Name) ? "an earlier waypoint" : wp.Name;
+
+        private static string DescribeMark(ManagedWaypoint wp, int index) => string.IsNullOrEmpty(wp.Name) ? "waypoint " + (index + 1) : wp.Name;
+
+        // ---------- Words ----------
 
         // For Tetz's Test Harness (invoke RunningOrders.TrainPrediction Harness <loco> <index>): the predicted cars at a
         // queue index, end A first, to compare with the train that arrives there.
@@ -570,7 +662,7 @@ namespace RunningOrders
             {
                 return "no locomotive " + locomotiveQuery;
             }
-            TrainPrediction prediction = ForQueueIndex(locomotive, int.Parse(index));
+            TrainPrediction prediction = TrainPredictions.ForQueueIndex(locomotive, int.Parse(index));
             return prediction.Describe() + ": " + string.Join(" - ", prediction.Cars.Select(c => c.DisplayName));
         }
 
@@ -581,10 +673,17 @@ namespace RunningOrders
             return $"{Describe()} | cars A..B: {string.Join(" ", Cars.Select(c => c.DisplayName))} | front end {front} | " + string.Join(" | ", Legs);
         }
 
+        // "2 cars, 15 m"; "2-3 cars" or "2 or more cars" when some can't be known yet.
+        public string Counted()
+        {
+            string cars = MaxExtra == 0 ? Cars.Count.ToString() : MaxExtra == int.MaxValue ? $"{Cars.Count} or more" : $"{Cars.Count}-{Cars.Count + MaxExtra}";
+            return $"{cars} car{(Cars.Count == 1 && MaxExtra == 0 ? "" : "s")}, {Length:0} m{(MaxExtra == 0 ? "" : " or more")}";
+        }
+
         public string Describe()
         {
-            string text = $"{Cars.Count} car{(Cars.Count == 1 ? "" : "s")}, {Length:0} m";
-            return Guesses.Count == 0 ? text : text + " (a guess: " + string.Join("; ", Guesses.Distinct()) + ")";
+            List<string> why = [.. Guesses.Concat(_placeGuesses).Distinct()];
+            return why.Count == 0 ? Counted() : $"{Counted()} (a guess: {string.Join("; ", why)})";
         }
     }
 }

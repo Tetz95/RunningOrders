@@ -400,6 +400,7 @@ namespace RunningOrders.State
                 _queueObservers.Remove(key);
             }
 
+            TrainPredictions.QueueChanged(key);
             EventBus.Publish(new QueueDidUpdate(key));
         }
 
@@ -409,6 +410,12 @@ namespace RunningOrders.State
             {
                 // State is already removed from storage
                 return;
+            }
+
+            TrainPredictions.QueueChanged(newState.LocomotiveId);
+            if (_prevLocoWaypointStates.TryGetValue(newState.LocomotiveId, out var before))
+            {
+                PredictionCheck.QueueChanged(before.Waypoints, newState.Waypoints);
             }
 
             if (!_prevLocoWaypointStates.TryGetValue(newState.LocomotiveId, out var oldState))

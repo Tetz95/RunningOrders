@@ -192,6 +192,7 @@ namespace RunningOrders
                     else
                     {
                         //ModLocator.Loader.Log($"Finish resolving waypoint {state.UnresolvedWaypoint.Id} {state.UnresolvedWaypoint.Location} for {state.UnresolvedWaypoint.Locomotive.Ident}");
+                        PredictionCheck.Done(entry.UnresolvedWaypoint);
                         RemoveWaypoint(entry.UnresolvedWaypoint);
                         FastForwardStopper.AtWaypoint(entry.Locomotive);
                     }

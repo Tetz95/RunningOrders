@@ -239,5 +239,34 @@ namespace RunningOrders.Tests
             List<TestCar> available = CutSelection.AvailableForDropoff(consist, indexOfCoupled);
             AssertCut(CutSelection.DropoffAllExceptLocomotives(available, consist, car => working.Contains(car.Id), Id), expectedCount, expectedFirstId, expectedLastId);
         }
+
+        // Set out with nothing known of the cars coupled to: only the train's own cars are in the list.
+        [Theory]
+        [InlineData(2, 2, "0", "1")]
+        [InlineData(0, 0, null, null)]
+        public void DropoffByCount_WithoutTheCarsCoupledTo(int count, int expectedCount, string? expectedFirstId, string? expectedLastId)
+        {
+            AssertCut(CutSelection.DropoffByCount(Cars(0, 1, 2, 3), -1, count), expectedCount, expectedFirstId, expectedLastId);
+        }
+
+        // W-L-T-S: from the locomotive's group only the cars beyond it go.
+        [Fact]
+        public void DropoffAllExceptLocomotives_WithoutTheCarsCoupledTo()
+        {
+            List<TestCar> train = [new(0, "Whittier"), new(1, isLoco: true), new(2, isLoco: true), new(3, "Sylva")];
+            List<TestCar> available = CutSelection.AvailableForDropoff(train, -1);
+            AssertCut(CutSelection.DropoffAllExceptLocomotives(available, train, car => car.IsLoco, Id), 1, "0", "0");
+        }
+
+        // All but locomotives without a coupling: the run of kept cars around the driven one.
+        [Theory]
+        [InlineData(1, 1, 2)]
+        [InlineData(2, 1, 2)]
+        [InlineData(5, 5, 5)]
+        public void KeptBlock(int index, int expectedFirst, int expectedLast)
+        {
+            List<TestCar> train = [new(0, "Whittier"), new(1, isLoco: true), new(2, isLoco: true), new(3, "Sylva"), new(4, "Sylva"), new(5, isLoco: true)];
+            Assert.Equal((expectedFirst, expectedLast), CutSelection.KeptBlock(train, index, car => car.IsLoco));
+        }
     }
 }

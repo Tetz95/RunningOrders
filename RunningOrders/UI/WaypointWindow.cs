@@ -368,6 +368,12 @@ namespace RunningOrders.UI
                 });
         }
 
+        private static string LeavingText(ManagedWaypoint waypoint, string prefix)
+        {
+            string train = TrainPredictions.Leaving(waypoint.Locomotive, waypoint.Id);
+            return train == null ? "" : prefix + train;
+        }
+
         internal void BuildWaypointSection(
             string waypointId,
             string waypointOwnerId,
@@ -401,6 +407,10 @@ namespace RunningOrders.UI
                 if (isCollapsed != null && isCollapsed())
                 {
                     builder.AddLabel($"<size=85%>{WaypointSummary.Describe(waypoint)}</size>");
+                    if (!isRouteWindow)
+                    {
+                        builder.AddLabel(() => $"<size=85%>{LeavingText(waypoint, "Leaves with ")}</size>", UIPanelBuilder.Frequency.Periodic);
+                    }
                     return;
                 }
 
@@ -422,6 +432,11 @@ namespace RunningOrders.UI
                 });
 
                 BuildPoseField(waypoint, builder, isRouteWindow);
+                if (!isRouteWindow)
+                {
+                    var leavingField = builder.AddField("Leaves with", () => LeavingText(waypoint, ""), UIPanelBuilder.Frequency.Periodic);
+                    AddLabelOnlyTooltip(leavingField, "Leaves with", "The train as it goes on from this waypoint, worked out from the waypoints before it. When something can't be known yet, such as which car is the nearest, it says so.");
+                }
 
                 if (isRouteWindow || waypoint.Locomotive.TryGetTimetableTrainCrewId(out string trainCrewId))
                 {

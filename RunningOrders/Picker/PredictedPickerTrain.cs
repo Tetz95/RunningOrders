@@ -69,7 +69,7 @@ namespace RunningOrders
             }
             try
             {
-                _prediction = TrainPrediction.ForQueueIndex(locomotive, _index);
+                _prediction = TrainPredictions.ForQueueIndex(locomotive, _index);
             }
             catch (System.Exception e)
             {

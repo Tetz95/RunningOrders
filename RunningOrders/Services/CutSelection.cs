@@ -135,6 +135,15 @@ namespace RunningOrders.Services
             return toDropoff.Count == 0 ? [] : UpTo(fromFarEnd, toDropoff.Last(), id);
         }
 
+        // Without a coupling, all but locomotives: the run of kept cars around the one at index, which stays as the train.
+        public static (int first, int last) KeptBlock<T>(List<T> cars, int index, Func<T, bool> isKept)
+        {
+            int first = index, last = index;
+            while (first > 0 && isKept(cars[first - 1])) first--;
+            while (last < cars.Count - 1 && isKept(cars[last + 1])) last++;
+            return (first, last);
+        }
+
         // ---------- Where to uncouple ----------
 
         // The car and end to uncouple so that the cut (a run of cars at one end of the consist, in either order) comes
