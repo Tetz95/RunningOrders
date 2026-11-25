@@ -188,9 +188,11 @@ namespace RunningOrders.Model
             return (int)PosedWaypoint.ToWaypointEnd(FrontOnMark.Value ? front : front.Flipped());
         }
 
-        // The order to send the locomotive to the waypoint now. A placement picked for a train of the length it still
-        // has goes out as picked; once cars have been picked up or set out since, the game plans the same pose again
-        // for the train as it is (PosedWaypoint.Order walks the new length from the mark).
+        // The order to send the locomotive to the waypoint now: the end and the side as picked. The legs of the junctions
+        // under the train are worked out for the train as it stands (BodyLegs), not held to the ones recorded: the picker
+        // lays the train over the switches as they happened to be lined when it was picked, which says nothing about the
+        // way the train comes. Held to them, a train that came in on the other leg ran past the switch and backed onto
+        // the recorded one before it did its work (BEW 1 at Ne1w, 2026-11-24).
         public OrderWaypoint ToOrder(BaseLocomotive locomotive, Location mark, string locationString, string coupleToCarId)
         {
             var end = (WaypointEnd)ArrivingEndFor(locomotive);
@@ -200,49 +202,18 @@ namespace RunningOrders.Model
             {
                 return new OrderWaypoint(locationString, coupleToCarId, end, side, null, 0f, carEnd);
             }
-            // The junctions the picker laid the body over belong to the train as predicted at that point in the queue.
-            // When the real train already stands across one of those junctions on another leg, holding to the recorded
-            // leg sent it out and round to come back over the other one (a train straddling Nkbia on Svbi, picked over
-            // Sm2qt, ran out to turn and stuck behind another train instead of backing onto the mark). The same end and
-            // side are planned again for the train as it stands, as the game plans them.
-            if (Turns != null && Turns.Length >= 3 && StandsAcrossOtherLeg(locomotive, out string junction))
+            float length = AutoEngineerPlanner.CalculateTotalLength(locomotive.EnumerateCoupled().ToList());
+            bool asPicked = BodyLength > 0f && System.Math.Abs(length - BodyLength) <= SameLengthTolerance;
+            if (side != Track.Search.BodyToward.Unspecified
+                && Services.BodyLegs.TryOrder(locomotive, mark, end, side, length, asPicked ? OrderWaypoint.DecodeTurns(Turns) : null, coupleToCarId, carEnd, out OrderWaypoint order))
             {
-                RunningOrders.ModLocator.Loader.Log($"{locomotive.Ident}: the train stands across {junction} on another leg than the pose recorded; placement planned for the train as it stands");
-                return PosedWaypoint.Order(locomotive, Graph.Shared.Current, mark, end, side, null, coupleToCarId, carEnd);
+                return order;
             }
-            if (BodyLength > 0f)
+            if (asPicked)
             {
-                float length = AutoEngineerPlanner.CalculateTotalLength(locomotive.EnumerateCoupled().ToList());
-                if (System.Math.Abs(length - BodyLength) <= SameLengthTolerance)
-                {
-                    return new OrderWaypoint(locationString, coupleToCarId, end, side, OrderWaypoint.DecodeTurns(Turns), BodyLength, carEnd);
-                }
+                return new OrderWaypoint(locationString, coupleToCarId, end, side, OrderWaypoint.DecodeTurns(Turns), BodyLength, carEnd);
             }
             return PosedWaypoint.Order(locomotive, Graph.Shared.Current, mark, end, side, null, coupleToCarId, carEnd);
-        }
-
-        // Whether the train stands across one of the recorded junctions on a leg the recorded turn doesn't use: it
-        // occupies one of the turn's two segments and another segment at the same node.
-        private bool StandsAcrossOtherLeg(BaseLocomotive locomotive, out string junction)
-        {
-            junction = null;
-            var occupied = new HashSet<TrackSegment>();
-            foreach (Car car in locomotive.EnumerateCoupled())
-            {
-                if (car.LocationF.segment != null) occupied.Add(car.LocationF.segment);
-                if (car.LocationR.segment != null) occupied.Add(car.LocationR.segment);
-            }
-            foreach (JunctionTurn turn in OrderWaypoint.DecodeTurns(Turns) ?? [])
-            {
-                bool onTurn = occupied.Any(s => turn.Touches(s.id));
-                bool onOtherLeg = occupied.Any(s => !turn.Touches(s.id) && (s.a?.id == turn.NodeId || s.b?.id == turn.NodeId));
-                if (onTurn && onOtherLeg)
-                {
-                    junction = turn.NodeId;
-                    return true;
-                }
-            }
-            return false;
         }
     }
 }
