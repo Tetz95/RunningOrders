@@ -11,7 +11,7 @@ namespace RunningOrders
     internal static class FastForwardStopper
     {
         private static readonly AccessTools.FieldRef<TimeWindow, FastForwardSession> SessionRef =
-            AccessTools.FieldRefAccess<TimeWindow, FastForwardSession>("_fastForward");
+            ModLifecycle.Reflect("FastForwardStopper.SessionRef", () => AccessTools.FieldRefAccess<TimeWindow, FastForwardSession>("_fastForward"));
 
         public static void AtWaypoint(Car locomotive)
         {
@@ -22,7 +22,7 @@ namespace RunningOrders
             try
             {
                 TimeWindow window = BuilderWindowBase<TimeWindow>.Shared;
-                FastForwardSession session = window == null ? null : SessionRef(window);
+                FastForwardSession session = window == null || SessionRef == null ? null : SessionRef(window);
                 if (session != null && session.IsFastForwarding)
                 {
                     session.Stop();

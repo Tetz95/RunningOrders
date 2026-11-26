@@ -18,13 +18,13 @@ namespace RunningOrders.Services
         private static readonly MethodInfo PlannerRouteStart = AccessTools.Method(typeof(AutoEngineerPlanner), "RouteStartLocation", [typeof(float).MakeByRefType()]);
 
         private static readonly AccessTools.FieldRef<AutoEngineerPlanner, float> PlannerMaximumLength =
-            AccessTools.FieldRefAccess<AutoEngineerPlanner, float>("_maximumLength");
+            ModLifecycle.Reflect("ApproachRoute.PlannerMaximumLength", () => AccessTools.FieldRefAccess<AutoEngineerPlanner, float>("_maximumLength"));
 
         private static readonly AccessTools.FieldRef<AutoEngineerPlanner, List<RouteSearch.Step>> PlannerRoute =
-            AccessTools.FieldRefAccess<AutoEngineerPlanner, List<RouteSearch.Step>>("_route");
+            ModLifecycle.Reflect("ApproachRoute.PlannerRoute", () => AccessTools.FieldRefAccess<AutoEngineerPlanner, List<RouteSearch.Step>>("_route"));
 
         private static readonly AccessTools.FieldRef<AutoEngineerPlanner, int> PlannerStartStep =
-            AccessTools.FieldRefAccess<AutoEngineerPlanner, int>("_startStepIndex");
+            ModLifecycle.Reflect("ApproachRoute.PlannerStartStep", () => AccessTools.FieldRefAccess<AutoEngineerPlanner, int>("_startStepIndex"));
 
         // The game's own route search (as the auto engineer will run it) from where the train is now to a point beyond the
         // waypoint: does it run over the waypoint's track segment? When in doubt, no.
@@ -34,7 +34,7 @@ namespace RunningOrders.Services
             {
                 AutoEngineerPlanner planner = (wp.Locomotive as BaseLocomotive)?.AutoEngineerPlanner;
                 TrackSegment segment = wp.Location.segment;
-                if (planner == null || segment == null || PlannerRouteStart == null)
+                if (planner == null || segment == null || PlannerRouteStart == null || PlannerMaximumLength == null)
                 {
                     return false;
                 }

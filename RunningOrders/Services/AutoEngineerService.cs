@@ -90,20 +90,15 @@ namespace RunningOrders.Services
             SendToWaypoint(ordersHelper, location, coupleToCarId);
         }
 
-        public AutoEngineerOrdersHelper GetOrdersHelper(BaseLocomotive locomotive)
-        {
-            AutoEngineerPersistence persistence = Traverse.Create(locomotive.AutoEngineerPlanner).Field("_persistence").GetValue<AutoEngineerPersistence>();
-            AutoEngineerOrdersHelper ordersHelper = new(locomotive, persistence);
-            return ordersHelper;
-        }
+        // From the locomotive's own key-value object, as the game's own UI does (GameInput, NativeBaseLocomotive): the Auto
+        // Engineer's planner, whose persistence this read before, exists only on the host, so on a client every order
+        // read or write through it failed (picks, Resume, a reordered first waypoint). The planner builds its own the same
+        // way, so on the host nothing changes.
+        public AutoEngineerOrdersHelper GetOrdersHelper(BaseLocomotive locomotive) =>
+            new(locomotive, new AutoEngineerPersistence(locomotive.KeyValueObject));
 
-        public string GetPlannerStatus(BaseLocomotive locomotive)
-        {
-            Type plannerType = typeof(AutoEngineerPlanner);
-            FieldInfo fieldInfo = plannerType.GetField("_persistence", BindingFlags.NonPublic | BindingFlags.Instance);
-            AutoEngineerPersistence persistence = (AutoEngineerPersistence)fieldInfo.GetValue((locomotive as BaseLocomotive).AutoEngineerPlanner);
-            return persistence.PlannerStatus;
-        }
+        public string GetPlannerStatus(BaseLocomotive locomotive) =>
+            new AutoEngineerPersistence(locomotive.KeyValueObject).PlannerStatus;
 
         public void CancelActiveOrders(BaseLocomotive loco)
         {

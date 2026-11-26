@@ -104,6 +104,57 @@ namespace RunningOrders.State
             return StateManager.Shared.GameSceneMode == GlobalGameManager.GameSceneMode.Editor;
         }
 
+        // The storages' contents when the mod was unloaded (the game reloads every mod when the mod set changes): a load that
+        // follows without a game load (the world stays) puts them back. Static: the next load is a new ModStateManager.
+        private static (Dictionary<string, Value> mod, Dictionary<string, Value> queues, Dictionary<string, Value> routes)? _unloaded;
+
+        // OnModUnload: the storages' contents kept, and the storages unregistered from the game (they were left registered
+        // with their key-value objects destroyed).
+        internal void Unload()
+        {
+            try
+            {
+                if (_waypointModStorage != null && _queueStateStorage != null && _routeStorage != null)
+                {
+                    _unloaded = (_waypointModStorage.Snapshot(), _queueStateStorage.Snapshot(), _routeStorage.Snapshot());
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLocator.Loader.LogError(ex, "Keeping the queues over the mod reload:");
+            }
+            _observers.ForEach(o => o.Dispose());
+            _observers.Clear();
+            _queueObservers.Values.ToList().ForEach(o => o.Dispose());
+            _queueObservers.Clear();
+            _routeObservers.Values.ToList().ForEach(o => o.Dispose());
+            _routeObservers.Clear();
+            DestroyStorageKeyValueObjects();
+        }
+
+        // Loaded again with the world still loaded (no game load follows, so no PropertiesDidRestore): the storages again,
+        // with what they held, then the same restore as after a game load.
+        internal void ResumeMidWorld()
+        {
+            if (IsInEditor())
+            {
+                return;
+            }
+            PrepareStorageKeyValueObjects();
+            if (_unloaded is var (mod, queues, routes))
+            {
+                using (StateManager.TransactionScope())
+                {
+                    _waypointModStorage.Restore(mod);
+                    _queueStateStorage.Restore(queues);
+                    _routeStorage.Restore(routes);
+                }
+                ModLocator.Loader.Log($"Running Orders loaded again with the railroad loaded: {queues.Count} queue(s) and {routes.Count} route(s) kept");
+            }
+            _unloaded = null;
+            OnPropertiesDidRestore(default);
+        }
+
         private void OnMapWillLoad(MapWillLoadEvent @event)
         {
             PrepareStorageKeyValueObjects();
@@ -306,14 +357,19 @@ namespace RunningOrders.State
                 _prevLocoWaypointStates.Add(state.LocomotiveId, deepCopy);
             }
 
-            foreach (var queue in _locoWaypointStates.Values)
+            // The cleaned queues go back to the shared storage on the host only: a client's write is sent to the host, so a
+            // joining client would rewrite every queue, and trim or delete one it couldn't resolve, for everyone.
+            if (StateManager.IsHost)
             {
-                _queueStateStorage.SetLocoQueue(queue);
-            }
+                foreach (var queue in _locoWaypointStates.Values)
+                {
+                    _queueStateStorage.SetLocoQueue(queue);
+                }
 
-            foreach (var queueIdToRemove in queueIdsToRemove)
-            {
-                _queueStateStorage.RemoveQueueByLocoId(queueIdToRemove);
+                foreach (var queueIdToRemove in queueIdsToRemove)
+                {
+                    _queueStateStorage.RemoveQueueByLocoId(queueIdToRemove);
+                }
             }
 
             return queueErrors;
@@ -354,9 +410,12 @@ namespace RunningOrders.State
                 _prevRoutes.Add(route.Id, deepCopy);
             }
 
-            foreach (var route in _routes.Values)
+            if (StateManager.IsHost)   // as the queues: the host writes the cleaned routes back
             {
-                _routeStorage.SetRoute(route);
+                foreach (var route in _routes.Values)
+                {
+                    _routeStorage.SetRoute(route);
+                }
             }
 
             return routeErrors;

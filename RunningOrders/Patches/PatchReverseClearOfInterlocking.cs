@@ -79,8 +79,11 @@ namespace RunningOrders
             private static MethodBase TargetMethod() => AccessTools.Method(typeof(AutoEngineerPlanner), "UpdateWaypointRouteIfNeeded");
 
             private static readonly MethodInfo RouteStartLocation = AccessTools.Method(typeof(AutoEngineerPlanner), "RouteStartLocation", [typeof(float).MakeByRefType()]);
-            private static readonly AccessTools.FieldRef<AutoEngineerPlanner, global::Model.AI.Orders> OrdersRef = AccessTools.FieldRefAccess<AutoEngineerPlanner, global::Model.AI.Orders>("_orders");
-            private static readonly AccessTools.FieldRef<AutoEngineerPlanner, float> MaximumLength = AccessTools.FieldRefAccess<AutoEngineerPlanner, float>("_maximumLength");
+            private static readonly AccessTools.FieldRef<AutoEngineerPlanner, global::Model.AI.Orders> OrdersRef = ModLifecycle.Reflect("PatchReverseClearOfInterlocking.OrdersRef", () => AccessTools.FieldRefAccess<AutoEngineerPlanner, global::Model.AI.Orders>("_orders"));
+            private static readonly AccessTools.FieldRef<AutoEngineerPlanner, float> MaximumLength = ModLifecycle.Reflect("PatchReverseClearOfInterlocking.MaximumLength", () => AccessTools.FieldRefAccess<AutoEngineerPlanner, float>("_maximumLength"));
+
+            // Not patched when a game update has renamed a member it needs.
+            private static bool Prepare() => RouteStartLocation != null && OrdersRef != null && MaximumLength != null;
 
             private static bool Prefix(AutoEngineerPlanner __instance, bool force, float baseMomentum, List<RouteSearch.Step> ____route, int ____startStepIndex, BaseLocomotive ____locomotive)
             {

@@ -1,4 +1,5 @@
 ﻿using Game.Events;
+using Game.State;
 using HarmonyLib;
 using Newtonsoft.Json.Linq;
 using Railroader.Modding;
@@ -28,7 +29,11 @@ namespace RunningOrders
 
         internal ServiceProvider ServiceProvider { get; private set; }
 
-        private bool MapHasLoaded = false;
+        // Static: a reload (OnModUnload, then OnModLoad on a new loader) on a map that stays loaded gets no MapDidLoad, and
+        // its windows were never registered.
+        private static bool MapHasLoaded = false;
+
+        private IDisposable _mapWillUnloadSubscription;
 
         public GameObject QueueStorageGO { get; private set; }
 
@@ -72,14 +77,14 @@ namespace RunningOrders
             ConfigureServices();
 
             _mapDidLoadSubscription = EventBus.Subscribe<MapDidLoadEvent>(OnMapDidLoad);
+            _mapWillUnloadSubscription = EventBus.Subscribe<MapWillUnloadEvent>(_ => MapHasLoaded = false);
 
-            HarmonyInstance = new Harmony(ModContext.ModIdentifier);
+            ModLifecycle.Init(ModContext.ModIdentifier, m => Log(m), (m, ex) => LogError(ex, m));
+            HarmonyInstance = ModLifecycle.Harmony;
             //Harmony.DEBUG = true;
 
             try
             {
-                HarmonyInstance.PatchAll(Assembly.GetExecutingAssembly());
-
                 var waypointQueueGO = new GameObject("RunningOrders");
                 Instance = waypointQueueGO.AddComponent<WaypointQueueController>();
                 ModLocator.QueueController = Instance;
@@ -100,7 +105,7 @@ namespace RunningOrders
                 UnityEngine.Object.DontDestroyOnLoad(QueueStorageGO);
                 UnityEngine.Object.DontDestroyOnLoad(RouteStorageGO);
 
-                if (MapHasLoaded && (WaypointWindow == null || RouteManagerWindow == null || ModSettingsWindow == null))
+                if (MapHasLoaded)
                 {
                     InitWindows();
                 }
@@ -108,6 +113,23 @@ namespace RunningOrders
             catch (Exception ex)
             {
                 modContext.Log.Error(ex, $"Failed to load {modContext.ModIdentifier}:");
+            }
+
+            // After the components (a patch calls into them): class by class, so a game update that breaks one patch costs
+            // only its feature.
+            ModLifecycle.Patch();
+
+            // Loaded again while a railroad is loaded (the mod set changed without a game load): its queues back.
+            try
+            {
+                if (StateManager.Shared != null && StateManager.Shared.HasRestoredProperties && ModStateManager.Shared != null)
+                {
+                    ModStateManager.Shared.ResumeMidWorld();
+                }
+            }
+            catch (Exception ex)
+            {
+                modContext.Log.Error(ex, "Restoring the queues after the mod reload:");
             }
         }
 
@@ -165,8 +187,19 @@ namespace RunningOrders
 
             _mapDidLoadSubscription?.Dispose();
             _mapDidLoadSubscription = null;
+            _mapWillUnloadSubscription?.Dispose();
+            _mapWillUnloadSubscription = null;
 
-            HarmonyInstance.UnpatchAll(ModContext.ModIdentifier);
+            try
+            {
+                ModStateManager.Shared?.Unload();
+            }
+            catch (Exception ex)
+            {
+                LogError(ex, "Unloading the queue storage:");
+            }
+
+            ModLifecycle.Unpatch();
 
             if (Instance != null) UnityEngine.Object.DestroyImmediate(Instance.gameObject);
             Instance = null;

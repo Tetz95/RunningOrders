@@ -11,13 +11,16 @@ namespace RunningOrders
     internal static class PickerPoseText
     {
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, Location?> HoverRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, Location?>("_hoverLocation");
+            ModLifecycle.Reflect("PickerPoseText.HoverRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, Location?>("_hoverLocation"));
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, bool> PoseKnownRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, bool>("_poseKnown");
+            ModLifecycle.Reflect("PickerPoseText.PoseKnownRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, bool>("_poseKnown"));
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, bool> PoseChosenRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, bool>("_poseChosen");
+            ModLifecycle.Reflect("PickerPoseText.PoseChosenRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, bool>("_poseChosen"));
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, int> PoseIndexRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, int>("_poseIndex");
+            ModLifecycle.Reflect("PickerPoseText.PoseIndexRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, int>("_poseIndex"));
+
+        // Not patched when a game update has renamed a member it needs.
+        private static bool Prepare() => HoverRef != null && PoseKnownRef != null && PoseChosenRef != null && PoseIndexRef != null;
 
         private static void Postfix(AutoEngineerDestinationPicker __instance, ref string __result)
         {

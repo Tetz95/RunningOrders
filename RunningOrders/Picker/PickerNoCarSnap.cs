@@ -13,7 +13,10 @@ namespace RunningOrders
     internal static class PickerNoCarSnap
     {
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, (Car car, Car.End end)?> CurrentCarInfoRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, (Car car, Car.End end)?>("_currentCarInfo");
+            ModLifecycle.Reflect("PickerNoCarSnap.CurrentCarInfoRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, (Car car, Car.End end)?>("_currentCarInfo"));
+
+        // Not patched when a game update has renamed a member it needs.
+        private static bool Prepare() => CurrentCarInfoRef != null;
 
         private static void Postfix(AutoEngineerDestinationPicker __instance, Location rawLocation, ref Location? __result)
         {

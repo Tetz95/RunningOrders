@@ -12,6 +12,25 @@ namespace RunningOrders.State
     {
         private readonly KeyValueObject _keyValueObject;
 
+        // Its keys and values (OnModUnload, for a load that follows without a game load: ModStateManager.ResumeMidWorld).
+        internal Dictionary<string, Value> Snapshot()
+        {
+            Dictionary<string, Value> copy = [];
+            foreach (string key in _keyValueObject.Keys.ToList())
+            {
+                copy[key] = _keyValueObject[key];
+            }
+            return copy;
+        }
+
+        internal void Restore(Dictionary<string, Value> copy)
+        {
+            foreach (KeyValuePair<string, Value> entry in copy)
+            {
+                _keyValueObject[entry.Key] = entry.Value;
+            }
+        }
+
         public readonly string ObjectId = "_tetzWaypointQueue.routes";  // since the 2026-11-19 rewrite (clean start)
 
         // Each key should be a route id

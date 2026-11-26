@@ -23,14 +23,18 @@ namespace RunningOrders
         private static int _index = -1;
         private static TrainPrediction _prediction;
 
+        // Not patched when a game update has renamed a member it needs.
+        private static bool Prepare() => LocomotiveRef != null && ConsistRef != null && TrainLengthRef != null && DontSnapRef != null
+            && StepInto != null && DirectionToward != null;
+
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, BaseLocomotive> LocomotiveRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, BaseLocomotive>("_locomotive");
+            ModLifecycle.Reflect("PredictedPickerTrain.LocomotiveRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, BaseLocomotive>("_locomotive"));
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, List<Car>> ConsistRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, List<Car>>("_consist");
+            ModLifecycle.Reflect("PredictedPickerTrain.ConsistRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, List<Car>>("_consist"));
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, float> TrainLengthRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, float>("_trainLength");
+            ModLifecycle.Reflect("PredictedPickerTrain.TrainLengthRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, float>("_trainLength"));
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, HashSet<Car>> DontSnapRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, HashSet<Car>>("_dontSnapToCars");
+            ModLifecycle.Reflect("PredictedPickerTrain.DontSnapRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, HashSet<Car>>("_dontSnapToCars"));
 
         private static bool _explicit;
         private static string _lastLogged;
@@ -106,9 +110,9 @@ namespace RunningOrders
         // it round, the previewed pose came out reversed. While picking such a waypoint both use the predicted train.
         // NearSideOf's own private helpers, so the side is worked out exactly as the game does, from the predicted train.
         private static readonly System.Func<IGraphView, Location, TrackSegment.End, float, Location> StepInto =
-            AccessTools.MethodDelegate<System.Func<IGraphView, Location, TrackSegment.End, float, Location>>(AccessTools.Method(typeof(WaypointPoseCycle), "StepInto"));
+            ModLifecycle.Reflect("PredictedPickerTrain.StepInto", () => AccessTools.MethodDelegate<System.Func<IGraphView, Location, TrackSegment.End, float, Location>>(AccessTools.Method(typeof(WaypointPoseCycle), "StepInto")));
         private static readonly System.Func<IGraphView, Location, TrackSegment.End, Vector3> DirectionToward =
-            AccessTools.MethodDelegate<System.Func<IGraphView, Location, TrackSegment.End, Vector3>>(AccessTools.Method(typeof(WaypointPoseCycle), "DirectionToward"));
+            ModLifecycle.Reflect("PredictedPickerTrain.DirectionToward", () => AccessTools.MethodDelegate<System.Func<IGraphView, Location, TrackSegment.End, Vector3>>(AccessTools.Method(typeof(WaypointPoseCycle), "DirectionToward")));
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(WaypointPoseCycle), nameof(WaypointPoseCycle.NearSideOf))]

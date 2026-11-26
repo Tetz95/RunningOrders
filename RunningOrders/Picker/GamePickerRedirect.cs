@@ -20,17 +20,20 @@ namespace RunningOrders.UI
 
         public static bool IsPending => _pending != null;
 
+        // Not patched when a game update has renamed a member it needs.
+        private static bool Prepare() => PoseChosenRef != null && PoseIndexRef != null && IsPickingRef != null;
+
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, bool> PoseChosenRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, bool>("_poseChosen");
+            ModLifecycle.Reflect("GamePickerRedirect.PoseChosenRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, bool>("_poseChosen"));
 
         // Whether the player picked the pose (pressed Space) in the pick being committed, rather than taking the
         // picker's default (the way the train would arrive from where it is now).
-        public static bool PoseChosen => AutoEngineerDestinationPicker.Shared != null && PoseChosenRef(AutoEngineerDestinationPicker.Shared);
+        public static bool PoseChosen => AutoEngineerDestinationPicker.Shared != null && PoseChosenRef != null && PoseChosenRef(AutoEngineerDestinationPicker.Shared);
 
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, int> PoseIndexRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, int>("_poseIndex");
+            ModLifecycle.Reflect("GamePickerRedirect.PoseIndexRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, int>("_poseIndex"));
         private static readonly AccessTools.FieldRef<AutoEngineerDestinationPicker, bool> IsPickingRef =
-            AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, bool>("_isPicking");
+            ModLifecycle.Reflect("GamePickerRedirect.IsPickingRef", () => AccessTools.FieldRefAccess<AutoEngineerDestinationPicker, bool>("_isPicking"));
 
         // The picker's name for the orientation being committed, as its prompt shows it; null when the picker isn't
         // picking (a waypoint set some other way, whose pose the picker's last index doesn't describe).
@@ -39,7 +42,7 @@ namespace RunningOrders.UI
             get
             {
                 var picker = AutoEngineerDestinationPicker.Shared;
-                int index = picker == null || !IsPickingRef(picker) ? -1 : PoseIndexRef(picker);
+                int index = picker == null || IsPickingRef == null || PoseIndexRef == null || !IsPickingRef(picker) ? -1 : PoseIndexRef(picker);
                 return index >= 0 && index < WaypointPoseCycle.Options.Length ? WaypointPoseCycle.Options[index].Label : null;
             }
         }
