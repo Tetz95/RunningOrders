@@ -10,7 +10,7 @@ applies here too.
 
 ## Installing
 
-Download the zip from [Releases](https://github.com/Tetz95/RunningOrders/releases) and install it with your mod manager,
+Download it from [Nexus Mods](https://www.nexusmods.com/railroader/mods/2461) or from [Releases](https://github.com/Tetz95/RunningOrders/releases) and install it with your mod manager,
 or unpack it into the game's `Mods` folder (one folder, `Tetz's Running Orders`). It loads as `tetz95/running-orders` and can't
 run alongside the original (`princeofpluto/waypointqueue`): install one or the other.
 
