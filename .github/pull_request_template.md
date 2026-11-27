@@ -15,9 +15,9 @@ Requirements for Pull Requests
 
 Link to the issue that your change relates to.
 
-To contribute an enhancement that doesn't already have a related issue, please follow the guide for suggesting an enhancement: https://github.com/Tetz95/RunningOrders/blob/tetz/CONTRIBUTING.md#suggesting-enhancements
+To contribute an enhancement that doesn't already have a related issue, please follow the guide for suggesting an enhancement: https://github.com/Tetz95/RunningOrders/blob/main/CONTRIBUTING.md#suggesting-enhancements
 
-To contribute a bug fix that doesn't already have a related issue, please follow the guide for reporting a bug: https://github.com/Tetz95/RunningOrders/blob/tetz/CONTRIBUTING.md#reporting-bugs
+To contribute a bug fix that doesn't already have a related issue, please follow the guide for reporting a bug: https://github.com/Tetz95/RunningOrders/blob/main/CONTRIBUTING.md#reporting-bugs
 
 -->
 
