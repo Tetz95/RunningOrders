@@ -33,6 +33,14 @@ namespace RunningOrders.UI
             {
                 parts.Add("refuel");
             }
+            if (wp.SprayerSwitch != ManagedWaypoint.WorkCarSwitch.AsIs)
+            {
+                parts.Add("sprayer " + Services.WorkCars.Describe(wp.SprayerSwitch, true));
+            }
+            if (wp.MowCarSwitch != ManagedWaypoint.WorkCarSwitch.AsIs)
+            {
+                parts.Add("MoW cars " + Services.WorkCars.Describe(wp.MowCarSwitch, false));
+            }
             if (wp.WillChangeMaxSpeed)
             {
                 parts.Add($"then max {wp.MaxSpeedForChange} mph");

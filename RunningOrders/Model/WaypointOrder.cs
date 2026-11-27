@@ -62,6 +62,11 @@ namespace RunningOrders.Model
         public FireStandMode FireWhileStanding { get; set; } = FireStandMode.KeepHot;
         public bool FireHotBeforeLeaving { get; set; } = true;
 
+        // Work cars coupled to the train when it gets here (after any coupling, before the cut): Weed Sprayer's spray cars
+        // (with the mod installed) and the game's MoW work cars, switched on, on for the route only, or off.
+        public WorkCarSwitch SprayerSwitch { get; set; } = WorkCarSwitch.AsIs;
+        public WorkCarSwitch MowCarSwitch { get; set; } = WorkCarSwitch.AsIs;
+
         public bool WillChangeMaxSpeed { get; set; }
         public int MaxSpeedForChange { get; set; }
         public string TimetableSymbol { get; set; }

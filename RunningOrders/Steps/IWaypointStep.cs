@@ -64,6 +64,26 @@ namespace RunningOrders.Steps
         }
     }
 
+    // Work cars: the train's spray cars (Weed Sprayer) and MoW work cars switched as the waypoint says. A refused switch
+    // pauses the queue; a train without such a car just goes on (logged).
+    internal class WorkCarsStep : IWaypointStep
+    {
+        public bool Run(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper, float tickSeconds)
+        {
+            if (wp.SprayerSwitch != ManagedWaypoint.WorkCarSwitch.AsIs)
+            {
+                int n = Services.WorkCars.SetSprayers(wp, wp.SprayerSwitch);
+                ModLocator.Loader.Log($"[WorkCars] {wp.Locomotive.Ident}: sprayer {Services.WorkCars.Describe(wp.SprayerSwitch, true)} ({n} car{(n == 1 ? "" : "s")})");
+            }
+            if (wp.MowCarSwitch != ManagedWaypoint.WorkCarSwitch.AsIs)
+            {
+                int n = Services.WorkCars.SetMowCars(wp, wp.MowCarSwitch);
+                ModLocator.Loader.Log($"[WorkCars] {wp.Locomotive.Ident}: MoW work cars {Services.WorkCars.Describe(wp.MowCarSwitch, false)} ({n} car{(n == 1 ? "" : "s")})");
+            }
+            return true;
+        }
+    }
+
     // "Then change speed": the new maximum speed, within the railroad's speed limit (the player sets it, 5-100 mph).
     internal class SpeedStep : IWaypointStep
     {

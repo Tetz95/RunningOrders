@@ -531,6 +531,8 @@ namespace RunningOrders.UI
                     BuildChangeMaxSpeedField(waypoint, builder, onWaypointChange);
                 }
 
+                BuildWorkCarsSection(waypoint, builder, onWaypointChange);
+
                 BuildWaitingSection(waypoint, builder, onWaypointChange);
 
                 BuildFireSection(waypoint, builder, onWaypointChange);

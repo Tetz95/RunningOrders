@@ -101,6 +101,15 @@ namespace RunningOrders
             LetGoOut
         }
 
+        // A work car switch at a waypoint (Weed Sprayer's spray cars, the game's MoW work cars).
+        public enum WorkCarSwitch
+        {
+            AsIs,
+            On,
+            OnRouteOnly,
+            Off
+        }
+
         public enum OpsPositionStatus
         {
             Spotted,
@@ -379,6 +388,11 @@ namespace RunningOrders
         public FireStandMode FireWhileStanding { get => Order.FireWhileStanding; set => Order.FireWhileStanding = value; }
         public bool FireHotBeforeLeaving { get => Order.FireHotBeforeLeaving; set => Order.FireHotBeforeLeaving = value; }
         public bool SteamWaitSkipped { get => Progress.SteamWaitSkipped; set => Progress.SteamWaitSkipped = value; }
+
+        // ---------- Work cars (Weed Sprayer's spray cars, the game's MoW work cars) ----------
+
+        public WorkCarSwitch SprayerSwitch { get => Order.SprayerSwitch; set => Order.SprayerSwitch = value; }
+        public WorkCarSwitch MowCarSwitch { get => Order.MowCarSwitch; set => Order.MowCarSwitch = value; }
 
         // The fire is to be banked or let go out here (stopping waypoints only).
         public bool WillTendFire => StopAtWaypoint && FireWhileStanding != FireStandMode.KeepHot;

@@ -33,6 +33,7 @@ namespace RunningOrders
                 [WaypointStep.Couple] = new CoupleStep(couplingService, carService),
                 [WaypointStep.Refuel] = _refuelStep,
                 [WaypointStep.Halt] = new HaltStep(),
+                [WaypointStep.WorkCars] = new WorkCarsStep(),
                 [WaypointStep.Cut] = new CutStep(uncouplingService, carService),
                 [WaypointStep.Speed] = new SpeedStep(),
                 [WaypointStep.FireDown] = new FireDownStep(),

@@ -10,6 +10,7 @@ namespace RunningOrders.Model
         Couple, // search for the car to couple (sends a new order), then air and hand brakes once coupled
         Refuel, // line up each locomotive at the loader and fill it
         Halt,   // stopping waypoints: the locomotive has come to a stand
+        WorkCars, // switch the train's spray cars and MoW work cars (before the cut, so cars set out here are switched too)
         Cut,    // the cut (after coupling: pick up or set out), once the whole train is at rest
         Speed,  // then change speed
         FireDown, // stopping waypoints, with Realistic Steam and Fuel Use: bank the fire or let it go out
