@@ -36,7 +36,7 @@ hand brakes, speeds).
 - **Waiting** for a number of minutes, until a time of day, or until no car in the train is spotted.
 - **Speed and timetable symbol** changes once a waypoint is reached.
 - **Work cars** switched on or off at a waypoint, stopping or passing: the game's MoW work cars (Enabled, Same Route
-  Only) and, with ashenmare's Weed Sprayer 0.3.0 or newer, its spray cars (Spray, Route only). Every such car in the
+  Only) and, with ashenmare's [Weed Sprayer](https://www.nexusmods.com/railroader/mods/1996) 0.3.0 or newer, its spray cars (Spray, Route only). Every such car in the
   train is switched, after any coupling there and before the cut.
 - **Switches** the engineer threw are put back once the train is clear. Under CTC, a route that turns back beyond an
   interlocking runs clear of the plant first (setting: *Turn back clear of CTC interlockings*).
