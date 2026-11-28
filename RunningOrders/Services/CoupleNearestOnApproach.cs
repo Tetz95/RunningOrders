@@ -13,15 +13,20 @@ namespace RunningOrders.Services
     // the train runs in on its last leg (no turn-back left), ahead of the mark facing away from the approach, the
     // coupling order replaces the waypoint and the train runs on to the car. Nothing found, or the best route to the car
     // not over the waypoint (a car the train would have to back up for): left to arrival (WaypointResolver), as before.
+    // First, for stopping waypoints too: a mark on a car (or within 0.5 m of its coupler) couples to that car's cut at
+    // once, since the train would stop short of the cars and never arrive (CouplingService.TryFindCarAtMark).
     internal class CoupleNearestOnApproach(CouplingService couplingService, ICarService carService)
     {
         private const float RetrySeconds = 3f;
+        // A train stopped short couples to a car found ahead only if the car's coupler is this close to the mark, along the
+        // track (a car on the next track over is near in a straight line, but not along the track).
+        private const float HeldShortMeters = 20f;
         private readonly Dictionary<string, float> _tried = [];
 
         // True when the coupling order went out (the waypoint is now a coupling to that car).
         internal bool TryCouple(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper)
         {
-            if (wp.StopAtWaypoint || !wp.WillSeekNearestCoupling || wp.CurrentlyCouplingNearby || wp.WaitingWasSkipped)
+            if (!wp.WillSeekNearestCoupling || wp.CurrentlyCouplingNearby || wp.WaitingWasSkipped)
             {
                 return false;
             }
@@ -36,6 +41,31 @@ namespace RunningOrders.Services
             _tried[wp.Id] = Time.time;
             try
             {
+                // The mark is on a car (or just off its coupler): couple to it now, stopping waypoint or not.
+                if (couplingService.TryFindCarAtMark(wp, out Car marked, out Car.LogicalEnd markedEnd, out Location markedAt))
+                {
+                    ModLocator.Loader.Log($"{wp.Locomotive.Ident}: the waypoint's mark is on {marked.Ident}'s cut (or within 0.5 m of it); coupling to {marked.Ident}");
+                    couplingService.SendNearbyCoupling(wp, ordersHelper, marked, markedEnd, markedAt);
+                    _tried.Remove(wp.Id);
+                    return true;
+                }
+                // Held short of the mark by cars near it: the engineer keeps its distance from other cars ("Lookin' at
+                // another train") and never arrives, so the search on arrival would never run. Searched from the train as on
+                // arrival; only a car whose coupler is near the mark counts.
+                if (WaypointResolver.IsTrainStopped(carService, wp)
+                    && couplingService.TryFindNearbyCar(wp, null, out Car near, out Car.LogicalEnd nearEnd, out Location nearAt, out _)
+                    && Track.Search.GraphRouteSearchExtension.TryFindDistance(Graph.Shared, wp.Location, nearAt, out float alongTrack)
+                    && alongTrack <= HeldShortMeters)
+                {
+                    ModLocator.Loader.Log($"{wp.Locomotive.Ident} stopped short of the waypoint with {near.Ident} near the mark; coupling to it");
+                    couplingService.SendNearbyCoupling(wp, ordersHelper, near, nearEnd, nearAt);
+                    _tried.Remove(wp.Id);
+                    return true;
+                }
+                if (wp.StopAtWaypoint)
+                {
+                    return false;
+                }
                 if (!ApproachRoute.TryGetLastLeg(wp, carService, out Vector3 approachFrom))
                 {
                     return false;

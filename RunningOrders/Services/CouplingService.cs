@@ -103,6 +103,78 @@ namespace RunningOrders.Services
             return true;
         }
 
+        // A couple-to-nearest waypoint whose mark is on a car, or within MarkLeewayMeters of one: that car's cut is the
+        // one meant. The player marked a coupler, and the cars have since been shoved (coupling another car to their far
+        // end pushes them along) or set out a little off the mark. Sent to the mark, the train would stop short of the
+        // cars ("Lookin' at another train") and never arrive. Gives the free coupler of that cut nearest the mark.
+        private const float MarkLeewayMeters = 0.5f;
+
+        public bool TryFindCarAtMark(ManagedWaypoint wp, out Car car, out LogicalEnd end, out Location location)
+        {
+            car = null;
+            end = default;
+            location = default;
+            Location mark = wp.Location;
+            List<Car> consist = carService.EnumerateCoupled(wp.Locomotive);
+            Car found = null;
+            foreach (float offset in new[] { 0f, MarkLeewayMeters, -MarkLeewayMeters })
+            {
+                try
+                {
+                    Location at = offset == 0f ? mark : Graph.Shared.LocationByMoving(mark, offset, checkSwitchAgainstMovement: false, stopAtEndOfTrack: true);
+                    found = trainControllerWrapper.CheckForCarAtLocation(at);
+                }
+                catch (Exception)
+                {
+                    found = null;
+                }
+                if (found != null && !consist.Contains(found))
+                {
+                    break;
+                }
+                found = null;
+            }
+            if (found == null)
+            {
+                return false;
+            }
+            // The cut's free coupler the train reaches first: nearest along the track from the locomotive (the far one is
+            // behind the cars); the one nearest the mark when no route is found.
+            UnityEngine.Vector3 markPosition = Graph.Shared.GetPosition(mark);
+            Location from = wp.Locomotive.OpsLocation;
+            float best = float.MaxValue;
+            bool byRoute = false;
+            foreach (Car c in carService.EnumerateCoupled(found))
+            {
+                foreach (LogicalEnd e in new[] { LogicalEnd.A, LogicalEnd.B })
+                {
+                    if (c[e].IsCoupled)
+                    {
+                        continue;
+                    }
+                    Location coupler = c.LocationFor(e);
+                    bool routed = GraphRouteSearchExtension.TryFindDistance(Graph.Shared, from, coupler, out float d);
+                    if (!routed)
+                    {
+                        d = UnityEngine.Vector3.Distance(Graph.Shared.GetPosition(coupler), markPosition);
+                    }
+                    if ((routed && !byRoute) || (routed == byRoute && d < best))
+                    {
+                        best = d;
+                        byRoute = routed;
+                        car = c;
+                        end = e;
+                    }
+                }
+            }
+            if (car == null)
+            {
+                return false;
+            }
+            location = GetCouplerLocation(car, end);
+            return location.IsValid;
+        }
+
         private bool TryFindNearbyCarInRadius(ManagedWaypoint wp, out Car car, out LogicalEnd end, out Location location, out string failure)
         {
             ModLocator.Loader.LogDebug($"Starting search for nearby coupling in radius");
