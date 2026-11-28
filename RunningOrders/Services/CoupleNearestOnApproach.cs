@@ -8,8 +8,9 @@ using RunningOrders.Model;
 
 namespace RunningOrders.Services
 {
-    // Couple to nearest without stopping at the waypoint: the car was searched for only on arrival, and 2026.1's
-    // engineer brakes to a stand at the end of its route (the waypoint) before the coupling order went out. Searched as
+    // Couple to nearest, stopping at the waypoint or not (user 2026-11-27: stopping first served nothing): the car was
+    // searched for only on arrival, and 2026.1's engineer brakes to a stand at the end of its route (the waypoint)
+    // before the coupling order went out. Searched as
     // the train runs in on its last leg (no turn-back left), ahead of the mark facing away from the approach, the
     // coupling order replaces the waypoint and the train runs on to the car. Nothing found, or the best route to the car
     // not over the waypoint (a car the train would have to back up for): left to arrival (WaypointResolver), as before.
@@ -62,10 +63,6 @@ namespace RunningOrders.Services
                     _tried.Remove(wp.Id);
                     return true;
                 }
-                if (wp.StopAtWaypoint)
-                {
-                    return false;
-                }
                 if (!ApproachRoute.TryGetLastLeg(wp, carService, out Vector3 approachFrom))
                 {
                     return false;
@@ -81,7 +78,7 @@ namespace RunningOrders.Services
                     ModLocator.Loader.LogDebug($"{wp.Locomotive.Ident}: the best route to {car.Ident} doesn't run over the waypoint; coupling on arrival");
                     return false;
                 }
-                ModLocator.Loader.Log($"{wp.Locomotive.Ident} is on its last approach to the waypoint; coupling to the nearest car {car.Ident} without stopping");
+                ModLocator.Loader.Log($"{wp.Locomotive.Ident} is on its last approach to the waypoint; coupling to the nearest car {car.Ident}{(wp.StopAtWaypoint ? "" : " without stopping")}");
                 couplingService.SendNearbyCoupling(wp, ordersHelper, car, end, location);
                 _tried.Remove(wp.Id);
                 return true;

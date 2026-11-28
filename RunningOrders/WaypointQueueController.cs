@@ -795,8 +795,11 @@ namespace RunningOrders
                 return;
             }
 
-            // The pose picked for the waypoint (how the train stands) goes out with the order.
-            QueuedPose pose = waypoint.Pose;
+            // The pose picked for the waypoint (how the train stands) goes out with the order. Not for couple to nearest: the
+            // coupling order replaces the waypoint once the car is found, and a pose picked against the predicted train
+            // could send the engineer backing out and in again to put the asked-for end on the mark first (user,
+            // 2026-11-27). The picker still draws the train with it.
+            QueuedPose pose = waypoint.WillSeekNearestCoupling ? null : waypoint.Pose;
             // A waypoint on a car goes out as the game's coupling order to the car's nearer end (the train placed against
             // that coupler), as the picker made it: 2026.1's planner doesn't route a plain waypoint that only names the car
             // (it kept rebuilding "not on current route" and never set off). A pose the player picked is sent as picked.
