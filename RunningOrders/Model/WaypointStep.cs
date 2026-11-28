@@ -7,6 +7,7 @@ namespace RunningOrders.Model
     public enum WaypointStep
     {
         Start,  // the timetable symbol
+        CloseUp, // held short by cars in the way and closed up to them: part from them again at that joint
         Couple, // search for the car to couple (sends a new order), then air and hand brakes once coupled
         Refuel, // line up each locomotive at the loader and fill it
         Halt,   // stopping waypoints: the locomotive has come to a stand

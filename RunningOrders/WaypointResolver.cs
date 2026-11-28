@@ -30,6 +30,7 @@ namespace RunningOrders
             _steps = new Dictionary<WaypointStep, IWaypointStep>
             {
                 [WaypointStep.Start] = new StartStep(),
+                [WaypointStep.CloseUp] = new CloseUpStep(uncouplingService, carService),
                 [WaypointStep.Couple] = new CoupleStep(couplingService, carService),
                 [WaypointStep.Refuel] = _refuelStep,
                 [WaypointStep.Halt] = new HaltStep(),

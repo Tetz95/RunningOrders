@@ -28,6 +28,13 @@ namespace RunningOrders.Model
 
         public bool CurrentlyWaitingBeforeCutting { get; set; }
 
+        // Held short of the mark by cars standing in the way: the train was sent to couple to the nearest of them (closing
+        // up, as a crew shoves up to cars already on the track), and is parted from it again at that joint before the
+        // waypoint's own orders run. The car, the end of it the train couples to, and whether the joint was opened.
+        public string ClosingUpToCarId { get; set; }
+        public int ClosingUpEnd { get; set; }
+        public bool ClosingUpUncoupled { get; set; }
+
         public bool CurrentlyRefueling { get; set; }
         public bool RefuelDone { get; set; }
         public List<string> RefuelLocoIdsQueue { get; set; } = [];

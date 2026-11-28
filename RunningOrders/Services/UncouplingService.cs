@@ -416,6 +416,9 @@ namespace RunningOrders
             return inactiveCut;
         }
 
+        // Opens one joint (cut lever, air closed on both sides), for closing up to cars on the track (CloseUpStep).
+        public void UncoupleAt(Car car, LogicalEnd end) => UncoupleCar(car, end);
+
         private void UncoupleCar(Car car, LogicalEnd endToUncouple)
         {
             LogicalEnd oppositeEnd = endToUncouple == LogicalEnd.A ? LogicalEnd.B : LogicalEnd.A;

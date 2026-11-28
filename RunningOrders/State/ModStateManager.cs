@@ -623,7 +623,8 @@ namespace RunningOrders.State
                 string newLocString = newState.UnresolvedWaypoint.LocationString;
 
                 string oldCoupleId = oldOrdersCoupleToCarId ?? "";
-                string newCoupleId = newState.UnresolvedWaypoint.CoupleToCarId ?? "";
+                // Closing up (CloseUpStep) the order couples to a car the waypoint itself doesn't couple to.
+                string newCoupleId = newState.UnresolvedWaypoint.Progress.ClosingUpToCarId ?? newState.UnresolvedWaypoint.CoupleToCarId ?? "";
 
                 // A new pose on the same mark is a change too: re-picking a waypoint to turn the train round kept the
                 // old order otherwise.

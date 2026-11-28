@@ -25,11 +25,78 @@ namespace RunningOrders.Services
         private readonly Dictionary<string, float> _tried = [];
 
         // True when the coupling order went out (the waypoint is now a coupling to that car).
-        internal bool TryCouple(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper)
+        // Held short of the mark by cars standing in the way (a stopping waypoint without coupling orders): the engineer
+        // keeps its distance ("Lookin' at another train") and waits there, maybe still over a switch, and the train never
+        // arrives (user, 2026-11-27). A crew would shove up to the cars: the train couples to the nearest of them, is parted
+        // from it again at that joint (CloseUpStep), and the waypoint's orders run there. Only when the planner itself says
+        // a car on its route limits it ("Approaching <car>"), the train has stopped, and that car is between it and the mark.
+        private bool TryCloseUp(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper)
         {
-            if (!wp.WillSeekNearestCoupling || wp.CurrentlyCouplingNearby || wp.WaitingWasSkipped)
+            if (!wp.StopAtWaypoint || wp.HasAnyCouplingOrders || !string.IsNullOrEmpty(wp.CoupleToCarId)
+                || !string.IsNullOrEmpty(wp.Progress.ClosingUpToCarId))
             {
                 return false;
+            }
+            if (_tried.TryGetValue(wp.Id, out float tried) && Time.time - tried < RetrySeconds)
+            {
+                return false;
+            }
+            _tried[wp.Id] = Time.time;
+            try
+            {
+                if (!WaypointResolver.IsTrainStopped(carService, wp))
+                {
+                    return false;
+                }
+                string status = new global::Model.AI.AutoEngineerPersistence(wp.Locomotive.KeyValueObject).PlannerStatus ?? "";
+                if (!status.StartsWith(Approaching))
+                {
+                    return false;
+                }
+                if (!couplingService.TryFindNearbyCar(wp, null, out Car car, out Car.LogicalEnd end, out Location coupler, out _)
+                    || status != Approaching + car.DisplayName)
+                {
+                    return false;
+                }
+                // Standing cars only: not another train (a cut with a locomotive) waiting ahead of this one.
+                foreach (Car c in carService.EnumerateCoupled(car))
+                {
+                    if (c is BaseLocomotive)
+                    {
+                        return false;
+                    }
+                }
+                Location from = wp.Locomotive.OpsLocation;
+                if (!Track.Search.GraphRouteSearchExtension.TryFindDistance(Graph.Shared, from, coupler, out float toCar)
+                    || !Track.Search.GraphRouteSearchExtension.TryFindDistance(Graph.Shared, from, wp.Location, out float toMark)
+                    || toMark <= toCar)
+                {
+                    return false;
+                }
+                ModLocator.Loader.Log($"{wp.Locomotive.Ident} is held short of the waypoint by {car.Ident}; closing up to it");
+                couplingService.SendCloseUp(wp, ordersHelper, car, end, coupler);
+                _tried.Remove(wp.Id);
+                return true;
+            }
+            catch (Exception e)
+            {
+                ModLocator.Loader.LogDebug($"{wp.Locomotive.Ident}: closing up failed ({e.Message})");
+                return false;
+            }
+        }
+
+        // The planner's status when a car on its route limits how far it can go (AutoEngineerPlanner).
+        private const string Approaching = "Approaching ";
+
+        internal bool TryCouple(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper)
+        {
+            if (wp.CurrentlyCouplingNearby || wp.WaitingWasSkipped)
+            {
+                return false;
+            }
+            if (!wp.WillSeekNearestCoupling)
+            {
+                return TryCloseUp(wp, ordersHelper);
             }
             if (_tried.TryGetValue(wp.Id, out float tried) && Time.time - tried < RetrySeconds)
             {

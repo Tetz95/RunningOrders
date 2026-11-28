@@ -795,6 +795,16 @@ namespace RunningOrders
                 return;
             }
 
+            // Closing up to cars in the way (a reload, or the order sent again): the coupling order to that car again.
+            if (!string.IsNullOrEmpty(waypoint.Progress.ClosingUpToCarId) && !waypoint.Progress.ClosingUpUncoupled
+                && TrainController.Shared.TryGetCarForId(waypoint.Progress.ClosingUpToCarId, out Car closeUpCar))
+            {
+                ModLocator.Loader.Log($"Sending next waypoint for {state.Locomotive?.Ident} to close up to {closeUpCar.Ident}");
+                _autoEngineerService.SendToCouple(ordersHelper, waypoint.Location, closeUpCar, (Car.LogicalEnd)waypoint.Progress.ClosingUpEnd);
+                ModStateManager.Shared.SaveLocoWaypointState(state.LocomotiveId, state);
+                return;
+            }
+
             // The pose picked for the waypoint (how the train stands) goes out with the order. Not for couple to nearest: the
             // coupling order replaces the waypoint once the car is found, and a pose picked against the predicted train
             // could send the engineer backing out and in again to put the asked-for end on the mark first (user,

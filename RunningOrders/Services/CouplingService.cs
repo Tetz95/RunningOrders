@@ -240,6 +240,23 @@ namespace RunningOrders.Services
             WaypointQueueController.Shared.UpdateWaypoint(wp);
         }
 
+        // Closing up (CoupleNearestOnApproach.TryCloseUp): the train couples to the nearest of the cars holding it short of
+        // the mark; CloseUpStep parts it from them again before the waypoint's orders run. The order goes out before the
+        // waypoint is stored, as for the nearest-car coupling.
+        public void SendCloseUp(ManagedWaypoint wp, AutoEngineerOrdersHelper ordersHelper, Car car, LogicalEnd end, Location location)
+        {
+            wp.StatusLabel = $"Closing up to {car.Ident}";
+            wp.Progress.ClosingUpToCarId = car.id;
+            wp.Progress.ClosingUpEnd = (int)end;
+            wp.Progress.ClosingUpUncoupled = false;
+            autoEngineerService.SendToCouple(ordersHelper, location, car, end);
+            // Keep the waypoint on the coupler the order marks, or the "first waypoint adjusted" check (ModStateManager)
+            // would see another mark and send it again.
+            string sent = ordersHelper.Orders.Waypoint?.LocationString;
+            wp.OverwriteLocation(sent != null ? Graph.Shared.ResolveLocationString(sent) : location);
+            WaypointQueueController.Shared.UpdateWaypoint(wp);
+        }
+
         public bool FindSpecificCouplingTarget(ManagedWaypoint waypoint, AutoEngineerOrdersHelper ordersHelper)
         {
             Car targetCar = waypoint.CouplingSearchResultCar;
