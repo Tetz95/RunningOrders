@@ -1,6 +1,6 @@
 {
     "identifier": "tetz95/running-orders",
-    "version": "3.2.1",
+    "version": "3.2.2",
     "name": "Tetz's Running Orders",
     "author": "PrinceOfPluto, Tetz95",
     "description": "A queue of orders for the Auto Engineer's waypoint mode: line up waypoints for a locomotive, each with its own orders (couple, cut, brakes, refuel, wait, speed, timetable symbol, the fire with Realistic Steam and Fuel Use), and the train works through them in turn. Queues save as routes. Began as Tetz95's fork of PrinceOfPluto's Waypoint Queue.",
